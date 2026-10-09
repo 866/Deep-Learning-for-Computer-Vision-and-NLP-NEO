@@ -12,3 +12,8 @@ dependencies = [
     "scikit-learn>=1.9.0",
     "torch>=2.14.0",
 ]
+
+[dependency-groups]
+dev = [
+    "nbconvert>=7.17.1",
+]
