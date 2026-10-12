@@ -148,12 +148,20 @@ export function setBertSentence(model: IBertModelLink, text: string, maskPositio
 export function runBertModel(model: IBertModelLink): void
 export function uploadAllBert(model: IBertModelLink): void
 export function bertTopK(model: IBertModelLink, pos: number, k: number): { tok: string; p: number }[]
-export function wordpieceEncode(vocab: string[], text: string, opts): { ids: number[]; toks: string[]; truncated: boolean }
+export function wordpieceEncode(v: IBertVocab, text: string, maxLen: number): { ids: number[]; toks: string[]; truncated: boolean }
 ```
 
 `runBertModel` composes the **existing** helpers — `matmulWT`, `linearForward`, `layerNormForward`,
 `attentionForward(model, layer, x, x, /*causal=*/false)`, `add` — exactly as `runTransformerModel`'s
 encoder loop does, minus the decoder. Only `wordpieceEncode` and the two heads are new math.
+
+`wordpieceEncode`'s first two arguments fused into one `IBertVocab` (vocab + the five special ids):
+every call needs both and the pair must never disagree — a vocab handed to a tokenizer with another
+vocab's specials prints ids against the wrong rows. `maxLen` is the sequence length T (callers pass
+`config.block_size`); content is capped at T−3 pieces so a sentence *pair*'s closing `[SEP]` has a
+home, and a single sentence reserves the same room so its ids are identical to what training
+produced. Output is always exactly T long, padded. (Both details correct an earlier draft of this
+spec, which said T−2 and did not settle the padded length.)
 
 `fetchBertWeights` does not duplicate `fetchTransformerWeights`: that function's body moves to a shared
 `fetchModelWeights<T>(url): Promise<T>` (it is already generic apart from its name and return type) and
@@ -161,9 +169,22 @@ the Transformer/ViT/BERT loaders each become a one-line call to it.
 
 ### 3.3 JS WordPiece tokenizer
 
-~30 lines, greedy longest match, the standard WordPiece decode strategy: split on whitespace; for
-each token take the longest vocab prefix, then longest continuations prefixed `##`; if no piece
-matches, emit `[UNK]`. Truncation keeps `[CLS]`, as many pieces as fit, and the trailing `[SEP]`.
+~60 lines, and its behaviour was **measured** against the `tokenizers` crate rather than written
+from the textbook description, which is wrong in two ways for this model:
+
+1. Greedy longest match, but the `##` prefix is suppressed when a piece *crosses* a punctuation
+   boundary in either direction and required when it stays on one side: `n!` → `n` + `!`, yet
+   `x!!!` → `x` + `!` + `##!` + `##!` and `!!n` → `!` + `##!` + `n`; `it's` → `it` + `'` + `s`
+   (bare `s`, though `##s` is in the vocab too). An OR over the two conditions gets 49 SST-2
+   sentences wrong — every censored-word `***` run — while XOR gets 0 of 68 221 wrong.
+2. A word containing a character no piece can spell (an `ö` or `à` outside this 600-token vocab), or
+   one longer than 100 characters, becomes **one** `[UNK]` and is skipped whole: `maelström` →
+   `[UNK]`, not `m` + `##a` + `##el` + … + `[UNK]`.
+
+Truncation keeps `[CLS]`, as many pieces as fit, and the trailing `[SEP]`. The whole algorithm was
+cross-checked by mirroring it in Python and diffing against the crate over all 67 349 train + 872
+dev sentences: 0 divergences. `npm run check:bert` re-verifies the JS transcription on the 20
+exported fixtures, capped and uncapped.
 
 This must agree with Python `tokenizers` WordPiece on the exported example ids — asserted in
 `npm run validate` (a token-id mismatch fails the run, not just a float diff).
