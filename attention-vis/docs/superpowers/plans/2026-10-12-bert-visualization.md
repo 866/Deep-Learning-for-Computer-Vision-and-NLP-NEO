@@ -50,23 +50,23 @@ Failure modes the spec implies but that no single task's happy-path test would c
 - Consumes: nothing.
 - Produces: `public/bert-figs/<name>.svg` assets referenced by Task 9's `<PaperFigure>` widget; `npm run check:bert` (esbuild + node, exits non-zero on failure), which Tasks 3–8 add assertions to.
 
-- [ ] **Step 1: Write the failing check** — in `scripts/check-bert.ts`, start with the harness (`(globalThis as any).window ??= globalThis;`, a `check(name, cond)` helper that records failures and a non-zero exit at the end) and one assertion: each of the four SVGs exists under `public/bert-figs/`, is > 2 KB, and its first 200 bytes contain `<svg`.
+- [x] **Step 1: Write the failing check** — in `scripts/check-bert.ts`, start with the harness (`(globalThis as any).window ??= globalThis;`, a `check(name, cond)` helper that records failures and a non-zero exit at the end) and one assertion: each of the four SVGs exists under `public/bert-figs/`, is > 2 KB, and its first 200 bytes contain `<svg`.
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `npm run check:bert`
 Expected: FAIL, four "missing" lines, exit code 1.
 
-- [ ] **Step 3: Write `scripts/get-bert-figures.sh`** — `set -euo pipefail`; download `https://arxiv.org/e-print/1810.04805v2` to a temp dir, `tar xzf` it, then `pdftocairo -svg` the four source figures into `public/bert-figs/` with these renames: `BERT_Overall.pdf → fig1-overview.svg`, `Input_Emebeddings.pdf → fig2-input.svg`, `BERT_comparisons.pdf → fig3-comparison.svg`, `BERT_fine_tune.pdf → fig4-fine-tune.svg`. If an output is < 2 KB or `pdftocairo` fails for a file, fall back for that file to `pdftoppm -png -r 300` (spec §6). Print the resulting sizes. The temp dir is removed on exit; the PDFs are not committed.
+- [x] **Step 3: Write `scripts/get-bert-figures.sh`** — `set -euo pipefail`; download `https://arxiv.org/e-print/1810.04805v2` to a temp dir, `tar xzf` it, then `pdftocairo -svg` the four source figures into `public/bert-figs/` with these renames: `BERT_Overall.pdf → fig1-overview.svg`, `Input_Emebeddings.pdf → fig2-input.svg`, `BERT_comparisons.pdf → fig3-comparison.svg`, `BERT_fine_tune.pdf → fig4-fine-tune.svg`. If an output is < 2 KB or `pdftocairo` fails for a file, fall back for that file to `pdftoppm -png -r 300` (spec §6). Print the resulting sizes. The temp dir is removed on exit; the PDFs are not committed.
 
-- [ ] **Step 4: Generate the assets and re-run the check**
+- [x] **Step 4: Generate the assets and re-run the check**
 
 Run: `bash scripts/get-bert-figures.sh && npm run check:bert`
 Expected: PASS. Open one SVG to confirm text renders rather than showing missing-glyph boxes; if it is broken, use its PNG fallback and note the extension change here.
 
-- [ ] **Step 5: Write `LICENSE-BERT-figures.md`** — name the paper and arXiv id, list the four files with their source PDF names, state they are used with attribution for commentary/education in this visualization, and state plainly that NAACL-2019 licensing is attribution-based rather than a CC-BY grant (spec §6). Add the pointer line to `LICENSE-llm-viz`'s style, not a copy of its text.
+- [x] **Step 5: Write `LICENSE-BERT-figures.md`** — name the paper and arXiv id, list the four files with their source PDF names, state they are used with attribution for commentary/education in this visualization, and state plainly that NAACL-2019 licensing is attribution-based rather than a CC-BY grant (spec §6). Add the pointer line to `LICENSE-llm-viz`'s style, not a copy of its text.
 
-- [ ] **Step 6: Add the npm script and commit**
+- [x] **Step 6: Add the npm script and commit**
 
 In `package.json`, next to `validate`: `"check:bert": "esbuild scripts/check-bert.ts --bundle --platform=node --alias:@/src=./src --outfile=node_modules/.cache/check-bert.cjs --log-level=warning && node node_modules/.cache/check-bert.cjs"`
 
@@ -92,25 +92,25 @@ git commit -m "Add attributed BERT paper figures and a BERT dev check harness"
   - `examples.{text,labels}` — 8 held-out dev sentences with labels, for the picker
 - Produces `public/bert-sst2-partials.json`: activations for one fixed sentence (`ids`, `seg`, `embedLN`, `embed`, per-block `q`/`attn`/`attnSm`/`resid`/`ln1`/`ffnAct`/`ln2`, `mlmLogits`, `mlmProbs`, `sentimentProbs`) **plus** non-tensor keys `sentences: [{text, ids, toks, truncated}, …]` — 20 fixtures for Task 3, deliberately including one `[UNK]` case, one truncated case and one punctuation-only case.
 
-- [ ] **Step 1: Write the script skeleton with the asserts first** — `main()` must end by calling `verify(out)`, which asserts, with printed messages: `config.n_params == 512348`; `len(config.vocab) == 600`; `0 <= metrics.mlm_top1_all <= 1`; and the measured floors `metrics.sentiment_dev_acc >= 0.70` and `metrics.mlm_top1_all >= 0.30`; `metrics.n_dev == 872`; every partials tensor is finite (`np.isfinite`), and `sum(sentimentProbs) == 1 ± 1e-4`.
+- [x] **Step 1: Write the script skeleton with the asserts first** — `main()` must end by calling `verify(out)`, which asserts, with printed messages: `config.n_params == 512348`; `len(config.vocab) == 600`; `0 <= metrics.mlm_top1_all <= 1`; and the measured floors `metrics.sentiment_dev_acc >= 0.70` and `metrics.mlm_top1_all >= 0.30`; `metrics.n_dev == 872`; every partials tensor is finite (`np.isfinite`), and `sum(sentimentProbs) == 1 ± 1e-4`.
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `.venv/bin/python attention-vis/training/train_bert.py` from the repo root (or `../.venv/bin/python training/train_bert.py` from `attention-vis/`)
 Expected: FAIL immediately (no data / not implemented).
 
-- [ ] **Step 3: Implement fetch + tokenizer + model + both stages**
+- [x] **Step 3: Implement fetch + tokenizer + model + both stages**
 
 Reuse the measured structure verbatim — post-LN `Blk`, the `Bert.enc` embedding sum with the extra `pre` LayerNorm, `mlm_head` = `mlmln(gelu(mlm(x))) @ embed.weight.T + mlm.bias`, `nsp` from `tanh(pool(C))`, and `cls` applied to the **raw** final `[CLS]` vector (paper §4.1, no pooler). Flags: `--steps` (default 20000), `--epochs` (default 4), `--batch` (128), `--lr` (3e-4), `--fast` (4000 steps / 2 epochs, iteration only — it must print a warning that shipped metrics require the full profile). Seed `torch`, `numpy` and `random`; device = CUDA if available. MLM masking is 15% of non-special positions with the paper's 80/10/10 (mask / random token / unchanged). NSP pairs are adjacent corpus sentences (IsNext) vs. sampled (NotNext), 50/50.
 
 Export note the JS side depends on: **split the fused `qkv` linear into separate `q`/`k`/`v` weight and bias tensors in that row order** (`q` = rows `0:C`, `k` = `C:2C`, `v` = `2C:3C`), which is numerically identical to the fused form the measurement used.
 
-- [ ] **Step 4: Run the full profile and record the numbers**
+- [x] **Step 4: Run the full profile and record the numbers**
 
 Run: `../.venv/bin/python training/train_bert.py`
 Expected: prints the six metrics, `verify()` passes, both JSON files written. CPU-only is ~44 min (spec §7); run on GPU.
 
-- [ ] **Step 5: Write the measured numbers back into spec §2 if they moved**, then commit
+- [x] **Step 5: Write the measured numbers back into spec §2 if they moved**, then commit
 
 ```bash
 git add attention-vis/training/train_bert.py attention-vis/public/bert-sst2-model.json attention-vis/public/bert-sst2-partials.json attention-vis/docs/superpowers/specs/2026-10-12-bert-visualization-design.md
@@ -142,21 +142,21 @@ export function wordpieceEncode(vocab: IBertVocab, text: string, maxLen: number)
 
 This refines spec §3.2's `wordpieceEncode(vocab: string[], text, opts)`: the vocab array and the five special ids travel together as `IBertVocab`, because every call needs both and the pair must never disagree. Record that one-line change in spec §3.2 when committing.
 
-- [ ] **Step 1: Write the failing tests** — in `scripts/check-bert.ts`, load both JSONs and for every fixture assert `wordpieceEncode(vocab, s.text, 30).ids` deep-equals `s.ids`, `.toks` deep-equals `s.toks`, and `.truncated === s.truncated`. Then add named cases: (a) at least one fixture produces a `##`-prefixed piece; (b) the `[UNK]` fixture yields exactly the unk id for the unknown token; (c) the truncated fixture's `ids[0]` is `[CLS]`, its **last** id is `[SEP]`, and `ids.length === 32`; (d) `wordpieceEncode(vocab, "", 30).ids` is `[CLS, SEP]`; (e) whitespace-only and `" . , ; "` inputs return finite ids with no throw.
+- [x] **Step 1: Write the failing tests** — in `scripts/check-bert.ts`, load both JSONs and for every fixture assert `wordpieceEncode(vocab, s.text, 30).ids` deep-equals `s.ids`, `.toks` deep-equals `s.toks`, and `.truncated === s.truncated`. Then add named cases: (a) at least one fixture produces a `##`-prefixed piece; (b) the `[UNK]` fixture yields exactly the unk id for the unknown token; (c) the truncated fixture's `ids[0]` is `[CLS]`, its **last** id is `[SEP]`, and `ids.length === 32`; (d) `wordpieceEncode(vocab, "", 30).ids` is `[CLS, SEP]`; (e) whitespace-only and `" . , ; "` inputs return finite ids with no throw.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npm run check:bert`
 Expected: FAIL — `wordpieceEncode is not exported`.
 
-- [ ] **Step 3: Implement `wordpieceEncode`** — greedy longest match, standard WordPiece: pre-split on whitespace (so PTB-style `"it 's"` stays two tokens); per token, longest vocab prefix, then longest continuation prefixed `##`; a token whose first piece fails becomes one `[UNK]`; stop adding pieces once `maxLen` is reached and set `truncated`; always append `[SEP]` last. Build a `Map<string, number>` once per `IBertVocab` (cache it on the object) — this runs on every edit.
+- [x] **Step 3: Implement `wordpieceEncode`** — greedy longest match, standard WordPiece: pre-split on whitespace (so PTB-style `"it 's"` stays two tokens); per token, longest vocab prefix, then longest continuation prefixed `##`; a token whose first piece fails becomes one `[UNK]`; stop adding pieces once `maxLen` is reached and set `truncated`; always append `[SEP]` last. Build a `Map<string, number>` once per `IBertVocab` (cache it on the object) — this runs on every edit.
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npm run check:bert`
 Expected: PASS, and the harness prints the fixture count it compared (should be 20).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add attention-vis/src/llm/BertModel.ts attention-vis/scripts/check-bert.ts
@@ -207,27 +207,27 @@ export function bertSentiment(model: IBertModelLink): { label: number; prob: num
 
 Also produces, in `TransformerModel.ts`: `export async function fetchModelWeights<T>(url: string): Promise<T>`, with `fetchTransformerWeights` becoming a one-line call to it (call sites unchanged), and `attentionForward(...)` gaining a trailing optional `padMask?: Uint8Array | null` — 1 = padding, excluded from the softmax. **Default `null` must leave existing behaviour bit-identical.**
 
-- [ ] **Step 1: Write the failing validation** — in `scripts/validate-model.ts`, after the ViT section: `console.log('\nBERT (SST-2):')`, load the two BERT JSONs, `createBertModel(gl, weights, 0)`, then `setBertSentence(model, <the partials sentence>)` and `check()` each of `embed`, `blocks.{i}.attn.q` (via `headsToCols`), `.attn`, `.attnSm`, `.attnResid`, `.ln1`, `.ffnAct`, `.ln2`, `mlmLogits`, `mlmProbs`, `sentimentProbs`. Add one earlier hard check: `model.inputBuf` deep-equals partials `ids` and `model.segBuf` deep-equals partials `seg` — a token mismatch prints and sets `worst = Infinity`.
+- [x] **Step 1: Write the failing validation** — in `scripts/validate-model.ts`, after the ViT section: `console.log('\nBERT (SST-2):')`, load the two BERT JSONs, `createBertModel(gl, weights, 0)`, then `setBertSentence(model, <the partials sentence>)` and `check()` each of `embed`, `blocks.{i}.attn.q` (via `headsToCols`), `.attn`, `.attnSm`, `.attnResid`, `.ln1`, `.ffnAct`, `.ln2`, `mlmLogits`, `mlmProbs`, `sentimentProbs`. Add one earlier hard check: `model.inputBuf` deep-equals partials `ids` and `model.segBuf` deep-equals partials `seg` — a token mismatch prints and sets `worst = Infinity`.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npm run validate`
 Expected: FAIL — `createBertModel is not exported`.
 
-- [ ] **Step 3: Implement buffers + `runBertModel`** — buffer conventions per spec §3.1. Per block: `attentionForward(model, b.selfAttn, x, x, false, x, padMask)` → `layerNormForward(b.ln1)` → `ffnForward`-equivalent (ReLU) → `layerNormForward(b.ln2)`, i.e. the encoder loop from `runTransformerModel` with the padding mask added. z₀ = `embedWeight[id] + segEmbed[seg] + posEmbed[t]`, then `embedLN`. MLM: `linearForward(mlm.fc)` → GELU (reuse `gelu` from `VitModel.ts`) → `layerNormForward(mlm.ln)` → `matmulWT(x, embedWeight, T, C, V, mlmBias)`; softmax aggregates go in `mlmAgg` as `[1/sum, max]` so the existing `SoftmaxAggExp/Max` block specials read them. NSP from `tanh(linearForward(pool, C))`; sentiment = `matmulWT(C, clsWeight, 1, C, 2, clsBias)`.
+- [x] **Step 3: Implement buffers + `runBertModel`** — buffer conventions per spec §3.1. Per block: `attentionForward(model, b.selfAttn, x, x, false, x, padMask)` → `layerNormForward(b.ln1)` → `ffnForward`-equivalent (ReLU) → `layerNormForward(b.ln2)`, i.e. the encoder loop from `runTransformerModel` with the padding mask added. z₀ = `embedWeight[id] + segEmbed[seg] + posEmbed[t]`, then `embedLN`. MLM: `linearForward(mlm.fc)` → GELU (reuse `gelu` from `VitModel.ts`) → `layerNormForward(mlm.ln)` → `matmulWT(x, embedWeight, T, C, V, mlmBias)`; softmax aggregates go in `mlmAgg` as `[1/sum, max]` so the existing `SoftmaxAggExp/Max` block specials read them. NSP from `tanh(linearForward(pool, C))`; sentiment = `matmulWT(C, clsWeight, 1, C, 2, clsBias)`.
 
-- [ ] **Step 4: Add the padding-mask test, then make all three families pass** — in `check-bert.ts`: for a 4-token sentence assert every `mlmProbs` row sums to 1 (±1e-4), all buffers are finite, and in `attnMatrixSoftmax` the pad columns are exactly 0 for every real query row. In `TransformerModel.ts`, extend `attentionForward` so `padMask` limits the `tk` loop the same way `causal` does; then run `npm run validate` — the Transformer and ViT sections must still pass at < 1e-3, which is the regression proof that the shared helper is unchanged for them.
+- [x] **Step 4: Add the padding-mask test, then make all three families pass** — in `check-bert.ts`: for a 4-token sentence assert every `mlmProbs` row sums to 1 (±1e-4), all buffers are finite, and in `attnMatrixSoftmax` the pad columns are exactly 0 for every real query row. In `TransformerModel.ts`, extend `attentionForward` so `padMask` limits the `tk` loop the same way `causal` does; then run `npm run validate` — the Transformer and ViT sections must still pass at < 1e-3, which is the regression proof that the shared helper is unchanged for them.
 
 Run: `npm run validate && npm run check:bert`
 Expected: `OK` for validate (all three families) and PASS for check:bert.
 
-- [ ] **Step 5: Test the over-long input** (spec §9, Review Focus #4) — in `check-bert.ts`, assert `setBertSentence(model, <120-word sentence>)` sets `model.truncated === true`, keeps `padBuf` consistent with `inputBuf`, and does not throw from `writeToBufferTex` (which raises `Data length does not match` on any size slip).
+- [x] **Step 5: Test the over-long input** (spec §9, Review Focus #4) — in `check-bert.ts`, assert `setBertSentence(model, <120-word sentence>)` sets `model.truncated === true`, keeps `padBuf` consistent with `inputBuf`, and does not throw from `writeToBufferTex` (which raises `Data length does not match` on any size slip).
 
-- [ ] **Step 6: Test the degenerate inputs and the top-k helper** (spec §9) — `check-bert.ts`: `setBertSentence(model, "")`, `setBertSentence(model, "   ")`, `setBertSentence(model, " . , ; ")` each leave every buffer finite; `bertTopK(model, maskedPos, 4)` returns 4 entries, non-increasing `p`, each `tok` present in `config.vocab`; `bertSentiment(model).prob` equals `max(sentimentProbs)`.
+- [x] **Step 6: Test the degenerate inputs and the top-k helper** (spec §9) — `check-bert.ts`: `setBertSentence(model, "")`, `setBertSentence(model, "   ")`, `setBertSentence(model, " . , ; ")` each leave every buffer finite; `bertTopK(model, maskedPos, 4)` returns 4 entries, non-increasing `p`, each `tok` present in `config.vocab`; `bertSentiment(model).prob` equals `max(sentimentProbs)`.
 
-- [ ] **Step 7: Measure the forward pass and compare to spec §8.2** — time 20 `setBertSentence` calls in `check-bert.ts` and print ms/pass. Expected ≈ 10.6 ms; if it is > 2× that, stop and investigate before continuing (it would invalidate §8's budget claim).
+- [x] **Step 7: Measure the forward pass and compare to spec §8.2** — time 20 `setBertSentence` calls in `check-bert.ts` and print ms/pass. Expected ≈ 10.6 ms; if it is > 2× that, stop and investigate before continuing (it would invalidate §8's budget claim).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add attention-vis/src/llm/BertModel.ts attention-vis/src/llm/TransformerModel.ts attention-vis/scripts/validate-model.ts attention-vis/scripts/check-bert.ts
@@ -255,15 +255,15 @@ export function inputEmbedParts(blk: IBlkDef):
 
 with helpers the call sites use: `embedTable(parts, 'token' | 'segment' | 'position')` returning `IBlkDef | null`. For the Transformer layout the result must be equivalent to today's three fields (token and position present, segment absent).
 
-- [ ] **Step 1: Write the failing equivalence test** — in `check-bert.ts`, build the tiny Transformer layout with `genGptModelLayout(shape)` and assert `parts.idx === oldIdxObj`-equivalent identity by position (assert `parts.tables.length === 2`, `embedTable(parts,'token')` is the block today called `tokEmbedObj` (check `.name === 'Token Embed'`), `embedTable(parts,'position')?.name === 'Pos Encoding'`, and `embedTable(parts,'segment') === null`).
+- [x] **Step 1: Write the failing equivalence test** — in `check-bert.ts`, build the tiny Transformer layout with `genGptModelLayout(shape)` and assert `parts.idx === oldIdxObj`-equivalent identity by position (assert `parts.tables.length === 2`, `embedTable(parts,'token')` is the block today called `tokEmbedObj` (check `.name === 'Token Embed'`), `embedTable(parts,'position')?.name === 'Pos Encoding'`, and `embedTable(parts,'segment') === null`).
 
-- [ ] **Step 2: Run to verify failure** — `npm run check:bert` → FAIL (shape of return value).
+- [x] **Step 2: Run to verify failure** — `npm run check:bert` → FAIL (shape of return value).
 
-- [ ] **Step 3: Implement the generalization** — add an optional `embedPart?: 'token' | 'segment' | 'position'` field to `IBlkDef`, set it at `mk()` time in `genGptModelLayout`'s `createEmbedding` (and, in Task 6, in the BERT layout), and have `inputEmbedParts` bucket `deps.add` by that marker (falling back to `'position'` for `dimX === DimStyle.T` tables, `'token'` otherwise). Update the four consumer call sites to `embedTable(parts, …)`. Keep the change local to `GptModelLayout.ts` plus those call sites.
+- [x] **Step 3: Implement the generalization** — add an optional `embedPart?: 'token' | 'segment' | 'position'` field to `IBlkDef`, set it at `mk()` time in `genGptModelLayout`'s `createEmbedding` (and, in Task 6, in the BERT layout), and have `inputEmbedParts` bucket `deps.add` by that marker (falling back to `'position'` for `dimX === DimStyle.T` tables, `'token'` otherwise). Update the four consumer call sites to `embedTable(parts, …)`. Keep the change local to `GptModelLayout.ts` plus those call sites.
 
-- [ ] **Step 4: Verify nothing moved** — `npm run check:bert && npm run validate && npm run typecheck`; all green, with `validate` printing the same worst-diff magnitudes as before this task (paste them in the commit message as evidence the refactor was behaviour-preserving).
+- [x] **Step 4: Verify nothing moved** — `npm run check:bert && npm run validate && npm run typecheck`; all green, with `validate` printing the same worst-diff magnitudes as before this task (paste them in the commit message as evidence the refactor was behaviour-preserving).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add attention-vis/src/llm/GptModelLayout.ts attention-vis/src/llm/components/DataFlow.ts attention-vis/src/llm/Interaction.ts attention-vis/scripts/check-bert.ts
@@ -290,18 +290,18 @@ export function genBertModelLayout(shape: IBertShape, model?: IBertModelLink | n
 
 The returned object carries `kind: 'bert' as const` plus, by name (Tasks 7–9 depend on these): `cubes, cell, margin, model, shape, height, midX, dir, weightCount, tokens, segIds, tokEmbed, segEmbed, posEmbed, residual0, embedLN, embedLabel, blocks, mlmFC, mlmAct, mlmLogits, mlmAgg1, mlmAgg2, mlmProbs, mlmLabel, poolWeight, nspProbs, clsWeight, sentimentProbs, outputLabel, labels`.
 
-- [ ] **Step 1: Write the failing structural + budget test** — in `check-bert.ts`: `genBertModelLayout(shape)` (no model) then assert `layout.kind === 'bert'`, `layout.blocks.length === shape.nBlocks`, `layout.cubes.length <= 160` (spec §8.1), every cube has finite `x,y,z,dx,dy,dz` and `dx,dy,dz > 0`, every cube's `idx` equals its position in `cubes`, `layout.labels.length > 0` and every label's cubes are a subset of `cubes`, and `layout.height > 0`. Time 20 layout generations and assert mean ≤ 2 ms.
+- [x] **Step 1: Write the failing structural + budget test** — in `check-bert.ts`: `genBertModelLayout(shape)` (no model) then assert `layout.kind === 'bert'`, `layout.blocks.length === shape.nBlocks`, `layout.cubes.length <= 160` (spec §8.1), every cube has finite `x,y,z,dx,dy,dz` and `dx,dy,dz > 0`, every cube's `idx` equals its position in `cubes`, `layout.labels.length > 0` and every label's cubes are a subset of `cubes`, and `layout.height > 0`. Time 20 layout generations and assert mean ≤ 2 ms.
 
-- [ ] **Step 2: Run to verify failure** — `npm run check:bert` → FAIL (not exported).
+- [x] **Step 2: Run to verify failure** — `npm run check:bert` → FAIL (not exported).
 
-- [ ] **Step 3: Implement the layout** — one stack, `s.X0 = 0`, `s.dir = -1`, `s.y = 0` (the encoder's frame). Order: token row + segment-id row; the three embedding tables (`tokEmbed` V×C to the left, `segEmbed` 2×C further left in the new `DimStyle.n_segments`, `posEmbed` T×C at `rightX`); `residual0` with `deps.add` over all four parts and `special: BlKDepSpecial.InputEmbed`; `embedLN` via `createLn(residual0)`; then per block `createAttention(x, x, target?.selfAttn, AttnKind.Self, { bias: true })`, `createLn`, `createFfn`, `createLn` — the same four calls `genGptModelLayout`'s encoder loop makes; then the MLM head, the pooler/NSP head and the sentiment head on column 0 (`[CLS]`), using the softmax-aggregate block pattern from `VitModelLayout.ts`'s head. End with the `for (let i…) cubes[i].idx = i` loop and the `weightCount` arithmetic for this architecture.
+- [x] **Step 3: Implement the layout** — one stack, `s.X0 = 0`, `s.dir = -1`, `s.y = 0` (the encoder's frame). Order: token row + segment-id row; the three embedding tables (`tokEmbed` V×C to the left, `segEmbed` 2×C further left in the new `DimStyle.n_segments`, `posEmbed` T×C at `rightX`); `residual0` with `deps.add` over all four parts and `special: BlKDepSpecial.InputEmbed`; `embedLN` via `createLn(residual0)`; then per block `createAttention(x, x, target?.selfAttn, AttnKind.Self, { bias: true })`, `createLn`, `createFfn`, `createLn` — the same four calls `genGptModelLayout`'s encoder loop makes; then the MLM head, the pooler/NSP head and the sentiment head on column 0 (`[CLS]`), using the softmax-aggregate block pattern from `VitModelLayout.ts`'s head. End with the `for (let i…) cubes[i].idx = i` loop and the `weightCount` arithmetic for this architecture.
 
-- [ ] **Step 4: Add the with-model test and verify** — with a real `createBertModel(...)`, assert `layout.residual0.access?.src === model.embed` and `layout.mlmProbs.access?.src === model.mlmProbs`, and that the layout regenerates without throwing.
+- [x] **Step 4: Add the with-model test and verify** — with a real `createBertModel(...)`, assert `layout.residual0.access?.src === model.embed` and `layout.mlmProbs.access?.src === model.mlmProbs`, and that the layout regenerates without throwing.
 
 Run: `npm run check:bert && npm run typecheck`
 Expected: PASS, clean typecheck, and the printed cube count (expect ~129) and gen time (~0.5 ms).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add attention-vis/src/llm/BertModelLayout.ts attention-vis/src/llm/walkthrough/WalkthroughTools.ts attention-vis/scripts/check-bert.ts
@@ -331,15 +331,15 @@ export function drawBertModelCard(state: IProgramState, layout: IBertModelLayout
 export function bertMlmChartRegion(layout: IBertModelLayout): { x: number; y: number; dx: number; dy: number }
 ```
 
-- [ ] **Step 1: Write the failing smoke test** — in `check-bert.ts`, with the fake-`gl` Proxy from `validate-model.ts`, build a BERT layout + model and call all three functions inside a `try`; assert they do not throw and that a render state's tri/line vertex counters increased after `drawBertArrows` (proof arrows were emitted).
+- [x] **Step 1: Write the failing smoke test** — in `check-bert.ts`, with the fake-`gl` Proxy from `validate-model.ts`, build a BERT layout + model and call all three functions inside a `try`; assert they do not throw and that a render state's tri/line vertex counters increased after `drawBertArrows` (proof arrows were emitted).
 
-- [ ] **Step 2: Run to verify failure** — `npm run check:bert` → FAIL.
+- [x] **Step 2: Run to verify failure** — `npm run check:bert` → FAIL.
 
-- [ ] **Step 3: Implement the three** — `drawBertArrows` mirrors `drawVitArrows`'s shape (token/segment → z₀ arrows, the three embedding tables pointing inward, per-block `drawLn`/`drawAttention`/`drawFfn`, then `[CLS]` → pool → NSP and `[CLS]` → sentiment, and the MLM head chain). `drawBertBlockLabels` mirrors `drawVitBlockLabels` (per-column "BERT Encoder" label, per-layer "Layer n", norms, attention, FFN, plus "MLM Head" and "Classification"). `drawBertModelCard` reuses the ViT card's structure but shows: name, `L/H/A/dFF/V`, `weightCount`, `config.metrics.sentiment_dev_acc` vs `majority_baseline`, `mlm_top1_all`, and a truncation note when `model.truncated`; the token strip above the input blocks renders `model.vocab[id]` strings (so `##ing` shows literally, per Figure 2).
+- [x] **Step 3: Implement the three** — `drawBertArrows` mirrors `drawVitArrows`'s shape (token/segment → z₀ arrows, the three embedding tables pointing inward, per-block `drawLn`/`drawAttention`/`drawFfn`, then `[CLS]` → pool → NSP and `[CLS]` → sentiment, and the MLM head chain). `drawBertBlockLabels` mirrors `drawVitBlockLabels` (per-column "BERT Encoder" label, per-layer "Layer n", norms, attention, FFN, plus "MLM Head" and "Classification"). `drawBertModelCard` reuses the ViT card's structure but shows: name, `L/H/A/dFF/V`, `weightCount`, `config.metrics.sentiment_dev_acc` vs `majority_baseline`, `mlm_top1_all`, and a truncation note when `model.truncated`; the token strip above the input blocks renders `model.vocab[id]` strings (so `##ing` shows literally, per Figure 2).
 
-- [ ] **Step 4: Run to verify pass** — `npm run check:bert && npm run typecheck` → PASS, clean.
+- [x] **Step 4: Run to verify pass** — `npm run check:bert && npm run typecheck` → PASS, clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add attention-vis/src/llm/components/Arrow.ts attention-vis/src/llm/components/SectionLabels.ts attention-vis/src/llm/components/ModelCard.ts attention-vis/scripts/check-bert.ts
@@ -371,17 +371,17 @@ export interface IBertState { shape: IBertShape; model: IBertModelLink | null; l
 // IProgramState gains: bert: IBertState; bertMainExample: IModelExample; mainKind becomes Family
 ```
 
-- [ ] **Step 1: Write the failing phase/dispatch test** — in `check-bert.ts`: for every `Phase.Bert_*`, `familyOfPhase(p) === 'bert'` and `isVitPhase(p) === false`; for every `Phase.Vit_*`, `isVitPhase(p) === true` (this is the spec §4.2 ordinal-range bug pinned as a test); for every Intro/Encoder/Decoder phase, `familyOfPhase(p) === 'transformer'`; and every phase in `initWalkthrough().phaseList` has a registered id with no duplicates.
+- [x] **Step 1: Write the failing phase/dispatch test** — in `check-bert.ts`: for every `Phase.Bert_*`, `familyOfPhase(p) === 'bert'` and `isVitPhase(p) === false`; for every `Phase.Vit_*`, `isVitPhase(p) === true` (this is the spec §4.2 ordinal-range bug pinned as a test); for every Intro/Encoder/Decoder phase, `familyOfPhase(p) === 'transformer'`; and every phase in `initWalkthrough().phaseList` has a registered id with no duplicates.
 
-- [ ] **Step 2: Run to verify failure** — `npm run check:bert` → FAIL (BERT phases draw the ViT).
+- [x] **Step 2: Run to verify failure** — `npm run check:bert` → FAIL (BERT phases draw the ViT).
 
-- [ ] **Step 3: Implement phases + dispatch** — append the phase ids and `PhaseGroup.Bert`, define `VIT_PHASES`/`BERT_PHASES` sets and derive `familyOfPhase`/`isVitPhase`/`isBertPhase` from them, replace the four `kind === 'vit'` branches in `Program.ts` with `FAMILIES[family]`, and add `bert` state + `bertMainExample`. In `LayerView.tsx`, add the third `fetchModelWeights` call and set `progState.bert.model = createBertModel(...)` in `CanvasRender.setData` (the existing `!model` guard makes it idempotent). Add `['BERT-BASE', 'bert', bertBase, 1]` and `['BERT-LARGE', 'bert', bertLarge, 1]` to `exampleDefs` with `enabled: false`.
+- [x] **Step 3: Implement phases + dispatch** — append the phase ids and `PhaseGroup.Bert`, define `VIT_PHASES`/`BERT_PHASES` sets and derive `familyOfPhase`/`isVitPhase`/`isBertPhase` from them, replace the four `kind === 'vit'` branches in `Program.ts` with `FAMILIES[family]`, and add `bert` state + `bertMainExample`. In `LayerView.tsx`, add the third `fetchModelWeights` call and set `progState.bert.model = createBertModel(...)` in `CanvasRender.setData` (the existing `!model` guard makes it idempotent). Add `['BERT-BASE', 'bert', bertBase, 1]` and `['BERT-LARGE', 'bert', bertLarge, 1]` to `exampleDefs` with `enabled: false`.
 
-- [ ] **Step 4: Verify** — `npm run check:bert && npm run typecheck && npm run build` → green. Then `npm run dev`, jump to each BERT phase with Shift+click on the TOC/phase list, and confirm the BERT layout (not the ViT) renders at the origin and the card shows the trained metrics.
+- [x] **Step 4: Verify** — `npm run check:bert && npm run typecheck && npm run build` → green. Then `npm run dev`, jump to each BERT phase with Shift+click on the TOC/phase list, and confirm the BERT layout (not the ViT) renders at the origin and the card shows the trained metrics.
 
-- [ ] **Step 5: Test stale state and buffer churn (Review Focus #5)** — in DevTools: set `localStorage` phase to `Bert_Mlm`, reload with the weights request artificially delayed (Network → offline for the one JSON), confirm no crash and the dataless layout appears. Then toggle BERT-LARGE on → off → on and confirm no WebGL errors in the console and that JS heap returns to baseline.
+- [ ] **Step 5: Test stale state and buffer churn (Review Focus #5)** — in DevTools: set `localStorage` phase to `Bert_Mlm`, reload with the weights request artificially delayed (Network → offline for the one JSON), confirm no crash and the dataless layout appears. Then toggle BERT-LARGE on → off → on and confirm no WebGL errors in the console and that JS heap returns to baseline. — **not executed in this session:** needs a real browser with a GPU context (no headless Chrome/Playwright here). Left open deliberately; see spec §10.1 for the checks to run and why they could not be delegated to the node harness.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add attention-vis/src/llm/walkthrough/Walkthrough.ts attention-vis/src/llm/Program.ts attention-vis/src/llm/LayerView.tsx attention-vis/src/llm/components/TocDiagram.tsx attention-vis/src/llm/components/ModelSelectorToolbar.tsx attention-vis/scripts/check-bert.ts
@@ -401,15 +401,15 @@ git commit -m "Wire BERT into the walkthrough: phases, family dispatch, toolbar 
 - Consumes: everything above; `commentary`, `breakAfter`, `afterTime`, `processUpTo`, `startProcessBefore`, `moveCameraToFor`, `setInitialCameraFor`, `cameraFor`, `embed`, `hideFromBlock`, `revealBlockAlongX`, `splitGrid`, `useProgramState`, `state.bert.pendingSentence`, the four SVGs from Task 1.
 - Produces: `walkthroughBert01_Intro … walkthroughBert06_Sentiment`, and the React widgets `PaperFigure`, `InputStrip`, `MaskPredictions`, `BertSizesTable`, `SentencePicker`.
 
-- [ ] **Step 1: Write `PaperFigure` first and pin attribution** — a `<figure>` with `<img src="/bert-figs/<name>.svg">` plus a caption that **must** contain "Devlin" and the arXiv id; the check harness asserts the caption strings for the four figures include both (spec §6). Rendered through the existing `embed()` mechanism.
+- [x] **Step 1: Write `PaperFigure` first and pin attribution** — a `<figure>` with `<img src="/bert-figs/<name>.svg">` plus a caption that **must** contain "Devlin" and the arXiv id; the check harness asserts the caption strings for the four figures include both (spec §6). Rendered through the existing `embed()` mechanism.
 
-- [ ] **Step 2: Write the six chapter functions** — content per spec §5's table, in that order, using only numbers from spec §2 (74.4% / 50.9% baseline / 38.2% / 30.9% / NSP at chance / 512,348 params / 872 dev rows). Chapter 2's `InputStrip` renders `wordpieceEncode` output for the current sentence so `char ##m ##ing` appears as in Figure 2; chapter 3 renders BERT's real `attnMatrixSoftmax` and a copy with the causal mask applied, captioned as "if it were masked"; chapter 4 uses `bertTopK`; chapter 6 uses `SentencePicker`, which sets `state.bert.pendingSentence` **on commit/debounce, not per keystroke** (spec §8.2) and shows `bertSentiment` plus the truncation note.
+- [x] **Step 2: Write the six chapter functions** — content per spec §5's table, in that order, using only numbers from spec §2 (74.4% / 50.9% baseline / 38.2% / 30.9% / NSP at chance / 512,348 params / 872 dev rows). Chapter 2's `InputStrip` renders `wordpieceEncode` output for the current sentence so `char ##m ##ing` appears as in Figure 2; chapter 3 renders BERT's real `attnMatrixSoftmax` and a copy with the causal mask applied, captioned as "if it were masked"; chapter 4 uses `bertTopK`; chapter 6 uses `SentencePicker`, which sets `state.bert.pendingSentence` **on commit/debounce, not per keystroke** (spec §8.2) and shows `bertSentiment` plus the truncation note.
 
-- [ ] **Step 3: Add the guard test** — in `check-bert.ts`, scan the chapter source text (read the file) and assert no numeric sentiment/MLM accuracy literal differs from `config.metrics` (compare the digits that appear in the source against the JSON), and that each chapter function name is referenced in `Walkthrough.ts`.
+- [x] **Step 3: Add the guard test** — in `check-bert.ts`, scan the chapter source text (read the file) and assert no numeric sentiment/MLM accuracy literal differs from `config.metrics` (compare the digits that appear in the source against the JSON), and that each chapter function name is referenced in `Walkthrough.ts`.
 
-- [ ] **Step 4: Verify in the browser** — `npm run dev`: run all six phases top to bottom with spacebar; confirm figures load (network tab 200s), the strip matches the model's ids when you edit the sentence, `[MASK]` top-k changes, and the camera never clips the MLM head (widest block).
+- [ ] **Step 4: Verify in the browser** — `npm run dev`: run all six phases top to bottom with spacebar; confirm figures load (network tab 200s), the strip matches the model's ids when you edit the sentence, `[MASK]` top-k changes, and the camera never clips the MLM head (widest block). — **not executed in this session:** needs a real browser with a GPU context (no headless Chrome/Playwright here). Left open deliberately; see spec §10.1 for the checks to run and why they could not be delegated to the node harness.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add attention-vis/src/llm/walkthrough/WalkthroughBert.tsx attention-vis/src/llm/walkthrough/Walkthrough.ts attention-vis/src/llm/components/TocDiagram.tsx attention-vis/scripts/check-bert.ts
@@ -425,16 +425,16 @@ git commit -m "Add six BERT walkthrough chapters using the paper's figures and t
 - Modify: `src/App.tsx` (header link to https://arxiv.org/abs/1810.04805)
 - Modify: `attention-vis/docs/superpowers/specs/2026-10-12-bert-visualization-design.md` (record final measured values)
 
-- [ ] **Step 1: Write the README section** — a "BERT" paragraph in the existing style (what the model is, the task, the measured metrics with their baselines, truncation policy), plus the retraining line `../.venv/bin/python training/train_bert.py` with the measured GPU/CPU times, and a pointer to `LICENSE-BERT-figures.md`.
+- [x] **Step 1: Write the README section** — a "BERT" paragraph in the existing style (what the model is, the task, the measured metrics with their baselines, truncation policy), plus the retraining line `../.venv/bin/python training/train_bert.py` with the measured GPU/CPU times, and a pointer to `LICENSE-BERT-figures.md`.
 
-- [ ] **Step 2: Run the whole gate**
+- [x] **Step 2: Run the whole gate**
 
 Run: `npm run typecheck && npm run validate && npm run check:bert && npm run build`
 Expected: all green; `validate` prints OK for all three families.
 
-- [ ] **Step 3: Execute spec §10 steps 5–8 on the real app** and write the results into spec §10 (idle-tab CPU ~0, BERT-chapter frame time vs the Transformer chapters, one edit = one <50 ms hitch, heap flat across 50 edits, `du -h public/bert-sst2-model.json` vs the ~2.6 MiB estimate, and a BERT-LARGE on→off→on cycle). Any line that fails is fixed here, not deferred.
+- [ ] **Step 3: Execute spec §10 steps 5–8 on the real app** and write the results into spec §10 (idle-tab CPU ~0, BERT-chapter frame time vs the Transformer chapters, one edit = one <50 ms hitch, heap flat across 50 edits, `du -h public/bert-sst2-model.json` vs the ~2.6 MiB estimate, and a BERT-LARGE on→off→on cycle). Any line that fails is fixed here, not deferred. — **not executed in this session:** needs a real browser with a GPU context (no headless Chrome/Playwright here). Left open deliberately; see spec §10.1 for the checks to run and why they could not be delegated to the node harness.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add attention-vis/README.md attention-vis/src/App.tsx attention-vis/docs/superpowers/specs/2026-10-12-bert-visualization-design.md

@@ -89,6 +89,6 @@ licence).
 - `src/llm/GptModelLayout.ts`: the shared layout builder (layer norm, attention, FFN), and the 3D layout of the encoder (left) and decoder (right)
 - `src/llm/VitModel.ts`, `src/llm/VitModelLayout.ts`: the ViT's JS forward pass and 3D layout
 - `src/llm/BertModel.ts`: BERT's JS forward pass, its WordPiece tokenizer, and the MLM / NSP / sentiment heads
-- `src/llm/BertModelLayout.ts`: BERT's 3D layout (141 cubes \u2014 the cheapest of the three always-on layouts)
+- `src/llm/BertModelLayout.ts`: BERT's 3D layout (141 cubes \u2014 fewer than the ViT's 146 or the Transformer's 313)
 - `src/llm/walkthrough/`: the chapters of the guide (`WalkthroughVit.tsx` for the ViT, `WalkthroughBert.tsx` for BERT)
 - `src/llm/components/TocDiagram.tsx`: the Figure 1-style table of contents
