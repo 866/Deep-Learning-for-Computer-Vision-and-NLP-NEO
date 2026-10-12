@@ -8,6 +8,8 @@ import {
     bertSentiment, bertTopK, bertVocabFromConfig, createBertModel, IBertModelLink, setBertSentence,
     uploadAllBert, wordpieceEncode,
 } from '../src/llm/BertModel';
+import { embedTable, genGptModelLayout, inputEmbedParts } from '../src/llm/GptModelLayout';
+import { configToShape } from '../src/llm/TransformerModel';
 
 // Paths are relative to the package root, matching scripts/validate-model.ts: npm runs
 // scripts with cwd = package root, while __dirname here is node_modules/.cache (the
@@ -297,6 +299,34 @@ for (let text of ['', '   ', ' . , ; ']) {
     let ms = (Date.now() - t0) / 20;
     console.log(`     forward pass: ${ms.toFixed(2)} ms per re-run of the whole model (spec §8.2 measured 10.6 ms)`);
     check('a full re-run stays inside the §8.2 budget', ms < 21.2, `${ms.toFixed(2)} ms > 2x the measured 10.6 ms`);
+}
+
+// ---- Task 5: inputEmbedParts speaks N tables, not the Transformer's two (spec §4.1) ----
+// BERT adds a third embedding table (segment) between token and position, so the helper that names
+// tokEmbed/posEmbed/idxObj outright cannot describe it. The refactor must leave the Transformer's
+// own layout looking exactly like it did, which is what these assertions pin: same blocks, same
+// names, only a more general way of handing them back.
+{
+    let trShape = configToShape(loadJson('public/transformer-reverse-model.json').config);
+    let trLayout = genGptModelLayout(trShape as any);
+    let parts = inputEmbedParts(trLayout.enc.residual0);
+    check('transformer input-embed block still resolves', !!parts);
+    if (parts) {
+        check('transformer exposes 2 embedding tables (no segment)', parts.tables.length === 2,
+            `got ${parts.tables.length}: ${parts.tables.map(t => t.what).join(', ')}`);
+        check('the token table is the block the Transformer layout calls Token Embed',
+            embedTable(parts, 'token')?.name === 'Token Embed', `got ${embedTable(parts, 'token')?.name}`);
+        check('the position table is the block it calls Pos Encoding',
+            embedTable(parts, 'position')?.name === 'Pos Encoding', `got ${embedTable(parts, 'position')?.name}`);
+        check('there is no segment table to draw for the Transformer', embedTable(parts, 'segment') === null);
+        check('the index row is still found', parts.idx.name === 'Tokens', `got ${parts.idx.name}`);
+        check('tables come back in layout order', parts.tables.map(t => t.what).join() === 'token,position',
+            parts.tables.map(t => t.what).join());
+        // The decoder side embeds the same way and is the one that actually renders the lookup
+        // arrows on hover, so it has to resolve under the same call.
+        let decParts = inputEmbedParts(trLayout.dec.residual0);
+        check('the decoder input-embed block resolves too', !!decParts && decParts.tables.length === 2);
+    }
 }
 
 summary();
