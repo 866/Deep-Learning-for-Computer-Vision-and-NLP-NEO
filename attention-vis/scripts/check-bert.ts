@@ -10,6 +10,9 @@ import {
 } from '../src/llm/BertModel';
 import { embedTable, genGptModelLayout, inputEmbedParts } from '../src/llm/GptModelLayout';
 import { genBertModelLayout } from '../src/llm/BertModelLayout';
+import { bertArrowPlan, drawBertArrows } from '../src/llm/components/Arrow';
+import { drawBertBlockLabels } from '../src/llm/components/SectionLabels';
+import { bertMlmChartRegion, drawBertModelCard } from '../src/llm/components/ModelCard';
 import { configToShape } from '../src/llm/TransformerModel';
 
 // Paths are relative to the package root, matching scripts/validate-model.ts: npm runs
@@ -370,6 +373,54 @@ for (let text of ['', '   ', ' . , ; ']) {
     check('the token row reads model.tokens', layout.tokens.access?.src === bert.tokens);
     check('the embed LN block reads the embedding norm output', layout.embedLN.lnResid.access?.src === bert.embedLN.output);
     check('block 1 reads its own attention output', layout.blocks[1].attn.attnOut.access?.src === bert.blocks[1].selfAttn?.proj.output);
+}
+
+// ---- Task 7: the BERT-specific arrows are a plan, so they can be checked without a GPU ----
+// The renderers (triRender / lineRender / fontAtlas) need a real WebGL2 context, so "call it and see
+// if it throws" would only be provable in the browser, where Task 10 checks it anyway. What is
+// checkable here is the thing that actually breaks: an arrow wired to the wrong block, or one whose
+// coordinates came from a block that isn't part of the layout. Both are invisible until you look at
+// the render, and both are caught by asserting on the plan the drawer iterates.
+{
+    let layout = genBertModelLayout(bert.shape, bert);
+    let plan = bertArrowPlan(layout);
+    let cubeSet = new Set(layout.cubes);
+    check('the arrow plan is not empty', plan.length >= 8, `${plan.length} arrows`);
+    let unknown = plan.filter(a => !cubeSet.has(a.from) || !cubeSet.has(a.to));
+    check('every arrow connects two blocks that are in the layout', unknown.length === 0,
+        unknown.map(a => `${a.kind}:${a.from.name}->${a.to.name}`).join(', '));
+    let nan = plan.filter(a => ![a.from.x, a.from.y, a.from.z, a.to.x, a.to.y, a.to.z].every(Number.isFinite));
+    check('no arrow has non-finite endpoints', nan.length === 0, nan.map(a => a.kind).join(', '));
+
+    // identity, not names: two blocks can share a name ('Layer Norm') and a wire to the wrong one of
+    // them is exactly the bug worth catching
+    let last = layout.blocks[layout.blocks.length - 1].output;
+    let expect: [string, any, any, string][] = [
+        ['embed', layout.tokens, layout.residual0, 'token ids select the rows of the embedding sum'],
+        ['embed', layout.tokEmbed, layout.residual0, 'token table feeds z0'],
+        ['embed', layout.segEmbed, layout.residual0, 'segment table feeds z0'],
+        ['embed', layout.posEmbed, layout.residual0, 'position table feeds z0'],
+        ['mlm', layout.mlmDense, layout.mlmAct, 'dense -> GELU'],
+        ['mlm', layout.mlmOutWeight, layout.mlmLogits, 'tied E^T -> logits'],
+        ['cls', last, layout.poolOut, 'the pooler reads [CLS] from the last block'],
+        ['cls', layout.poolOut, layout.nspLogits, 'the pooler feeds NSP'],
+        ['cls', last, layout.sentimentLogits, 'the classifier reads raw [CLS], not the pooled vector'],
+    ];
+    let missing = expect.filter(([kind, from, to]) => !plan.some(a => a.kind === kind && a.from === from && a.to === to));
+    check('the plan contains the Figure 2 / Figure 1 wires', missing.length === 0,
+        `missing: ${missing.map(m => m[3]).join(' | ')}`);
+
+    // MLM chart region: it is what the camera frames on, so it has to be a real rectangle
+    let region = bertMlmChartRegion(layout);
+    check('the MLM chart region is a sane rectangle',
+        Number.isFinite(region.x + region.y + region.dx + region.dy) && region.dx > 0 && region.dy > 0,
+        JSON.stringify(region));
+
+    // the draw functions themselves are only exercised for real in the browser (Task 10); here we
+    // assert they exist and are the functions the wiring will call
+    check('the three BERT draw entry points are functions',
+        typeof drawBertArrows === 'function' && typeof drawBertBlockLabels === 'function'
+        && typeof drawBertModelCard === 'function');
 }
 
 summary();
