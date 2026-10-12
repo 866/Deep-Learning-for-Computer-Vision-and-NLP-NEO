@@ -1,0 +1,39 @@
+{
+  "name": "attention-vis",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "validate": "esbuild scripts/validate-model.ts --bundle --platform=node --alias:@/src=./src --outfile=node_modules/.cache/validate.cjs --log-level=warning && node node_modules/.cache/validate.cjs",
+    "check:bert": "esbuild scripts/check-bert.ts --bundle --platform=node --alias:@/src=./src --outfile=node_modules/.cache/check-bert.cjs --log-level=warning && node node_modules/.cache/check-bert.cjs"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^6.4.0",
+    "@fortawesome/free-regular-svg-icons": "^6.4.0",
+    "@fortawesome/free-solid-svg-icons": "^6.4.0",
+    "@fortawesome/react-fontawesome": "^0.2.0",
+    "clsx": "^2.0.0",
+    "d3-color": "^3.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/d3-color": "^3.1.0",
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@webgpu/types": "^0.1.32",
+    "autoprefixer": "^10.4.15",
+    "postcss": "^8.4.29",
+    "sass": "^1.66.1",
+    "tailwindcss": "^3.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.21"
+  }
+}

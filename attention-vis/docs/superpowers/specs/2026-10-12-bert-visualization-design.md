@@ -306,13 +306,21 @@ header link to `https://arxiv.org/abs/1810.04805`.
 - Source: the four vector figures from the arXiv e-print (`BERT_Overall.pdf` = Fig 1,
   `Input_Emebeddings.pdf` = Fig 2, `BERT_comparisons.pdf` = Fig 3, `BERT_fine_tune.pdf` = Fig 4),
   already extracted and visually verified.
-- Conversion: `pdftocairo -svg` into `public/bert-figs/` (vector, crisp at any zoom), with a
-  `pdftoppm -png -r 300` fallback if an SVG comes out with embedded fonts broken.
+- Conversion: ghostscript `-dNoOutputFonts` then `pdftocairo -svg` into `public/bert-figs/`. The extra
+  ghostscript pass is not optional decoration: `pdftocairo -svg` alone writes text as SVG-1.1 glyph
+  references with no embedded font, which Firefox drops entirely (measured on Fig 2: 195 glyph
+  references, 158 paths — after outlining, 0 and 295). Outlining keeps the figures vector-crisp at
+  any camera zoom with no font dependency. `pdftoppm -png -r 300` remains as a per-file fallback, and
+  `npm run check:bert` asserts the shipped SVGs contain no glyph references, so a regression fails
+  loudly rather than shipping figures with missing labels.
 - Display: `<img>` inside the React commentary widgets (the `embed()` mechanism), captioned
   "Figure N from Devlin et al., 2018, arXiv:1810.04805" with an `embedLink` to the paper.
 - `LICENSE-BERT-figures.md` next to `LICENSE-llm-viz`, recording the source, the four files, and that
-  they are used with attribution for commentary/education. ACL Anthology's licensing for NAACL 2019 is
-  attribution-based rather than a clean CC-BY grant, so this is an explicit, documented decision.
+  they are used with attribution for commentary/education. Checked, not assumed: the published NAACL
+  2019 PDF footers say "© 2019 Association for Computational Linguistics" with no open-content notice,
+  and the arXiv e-print we convert from is under arXiv's non-exclusive *distribution* licence rather
+  than a CC option. There is therefore no open-content grant to claim, so the file states the use and
+  the evidence instead of asserting a licence — an attribution note, deliberately not a licence grant.
 
 ---
 
