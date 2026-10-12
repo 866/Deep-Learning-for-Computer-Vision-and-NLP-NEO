@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "validate": "esbuild scripts/validate-model.ts --bundle --platform=node --alias:@/src=./src --outfile=node_modules/.cache/validate.cjs --log-level=warning && node node_modules/.cache/validate.cjs",
-    "check:bert": "esbuild scripts/check-bert.ts --bundle --platform=node --alias:@/src=./src --outfile=node_modules/.cache/check-bert.cjs --log-level=warning && node node_modules/.cache/check-bert.cjs"
+    "check:bert": "esbuild scripts/check-bert.ts --bundle --platform=node --alias:@/src=./src --loader:.scss=empty --loader:.png=dataurl --loader:.jpg=dataurl --outfile=node_modules/.cache/check-bert.cjs --log-level=warning && node node_modules/.cache/check-bert.cjs"
   },
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^6.4.0",

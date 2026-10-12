@@ -13,6 +13,7 @@ import { genBertModelLayout } from '../src/llm/BertModelLayout';
 import { bertArrowPlan, drawBertArrows } from '../src/llm/components/Arrow';
 import { drawBertBlockLabels } from '../src/llm/components/SectionLabels';
 import { bertMlmChartRegion, drawBertModelCard } from '../src/llm/components/ModelCard';
+import { familyOfPhase, initWalkthrough, isBertPhase, isVitPhase, Phase, PhaseGroup } from '../src/llm/walkthrough/Walkthrough';
 import { configToShape } from '../src/llm/TransformerModel';
 
 // Paths are relative to the package root, matching scripts/validate-model.ts: npm runs
@@ -421,6 +422,49 @@ for (let text of ['', '   ', ' . , ; ']) {
     check('the three BERT draw entry points are functions',
         typeof drawBertArrows === 'function' && typeof drawBertBlockLabels === 'function'
         && typeof drawBertModelCard === 'function');
+}
+
+// ---- Task 8: which model a phase shows is set membership, not an ordinal range ----
+// The old rule was `phase >= Phase.Vit_Intro`. It silently claimed every later phase for the ViT,
+// so the first BERT phase added would have drawn the ViT's layout while its chapter text talked about
+// BERT \u2014 a bug that only shows up as "the picture doesn't match the words".
+{
+    let bertPhases = [Phase.Bert_Intro, Phase.Bert_Input, Phase.Bert_Attn, Phase.Bert_Mlm, Phase.Bert_PretrainFT, Phase.Bert_Sentiment];
+    let vitPhases = [Phase.Vit_Intro, Phase.Vit_Embedding, Phase.Vit_Encoder, Phase.Vit_Head, Phase.Vit_Attention];
+    let trPhases = [Phase.None, Phase.Intro_Intro, Phase.Intro_Prelim, Phase.Enc_Embedding, Phase.Enc_Stack,
+                    Phase.Dec_MaskedAttention, Phase.Dec_CrossAttention, Phase.Dec_Output];
+
+    check('every BERT phase belongs to the BERT family', bertPhases.every(p => familyOfPhase(p) === 'bert'),
+        bertPhases.filter(p => familyOfPhase(p) !== 'bert').map(p => Phase[p]).join(', '));
+    check('no BERT phase is mistaken for the ViT', bertPhases.every(p => !isVitPhase(p)),
+        bertPhases.filter(isVitPhase).map(p => Phase[p]).join(', '));
+    check('every BERT phase reports itself as BERT', bertPhases.every(isBertPhase));
+    check('every ViT phase still belongs to the ViT', vitPhases.every(p => isVitPhase(p) && familyOfPhase(p) === 'vit'),
+        vitPhases.filter(p => !isVitPhase(p)).map(p => Phase[p]).join(', '));
+    check('no ViT phase is mistaken for BERT', vitPhases.every(p => !isBertPhase(p)));
+    check('the Transformer chapters are still the Transformer family', trPhases.every(p => familyOfPhase(p) === 'transformer'),
+        trPhases.filter(p => familyOfPhase(p) !== 'transformer').map(p => Phase[p]).join(', '));
+
+    // the phase ids must be appended, never inserted: SavedState stores the number in localStorage, and
+    // a renumbered enum sends every returning reader to the wrong chapter
+    check('BERT phase ids come after the ViT ones',
+        Math.min(...bertPhases) > Math.max(...vitPhases),
+        `min bert ${Math.min(...bertPhases)} vs max vit ${Math.max(...vitPhases)}`);
+
+    let wt = initWalkthrough();
+    let ids = wt.phaseList.flatMap(g => g.phases.map(p => p.id));
+    let dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
+    check('no phase id is listed twice', dupes.length === 0, dupes.map(p => Phase[p]).join(', '));
+    check('every BERT phase is reachable from the table of contents',
+        bertPhases.every(p => ids.includes(p)),
+        bertPhases.filter(p => !ids.includes(p)).map(p => Phase[p]).join(', '));
+    let bertGroup = wt.phaseList.find(g => g.groupId === PhaseGroup.Bert);
+    check('the BERT chapter group is listed under its own group', !!bertGroup && bertGroup.phases.length === bertPhases.length,
+        bertGroup ? `${bertGroup.phases.length} phases` : 'no group');
+    // a phase is only valid if some group claims it; phaseToGroup() assumes that with a !
+    let unclaimed = ids.filter(id => !wt.phaseList.some(g => g.phases.some(p => p.id === id)));
+    check('every listed phase is claimed by a group', unclaimed.length === 0);
+    check('every phase in every group has a group', wt.phaseList.every(g => g.phases.every(p => typeof p.id === 'number')));
 }
 
 summary();
