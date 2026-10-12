@@ -8,7 +8,7 @@ import { SavedState } from "../SavedState";
 import { oneHotArray } from "@/src/utils/data";
 import { lerp, lerpSmoothstep } from "@/src/utils/math";
 import { Dim, Vec3, Vec4 } from "@/src/utils/vector";
-import { DimStyle, dimStyleColor, hideFromBlock, ICommentary, ICommentaryRes, IPhaseGroup, ITimeInfo, IVitWalkthroughArgs, IWalkthroughArgs, moveCameraTo, phaseTools } from "./WalkthroughTools";
+import { DimStyle, dimStyleColor, hideFromBlock, ICommentary, ICommentaryRes, IBertWalkthroughArgs, IPhaseGroup, ITimeInfo, IVitWalkthroughArgs, IWalkthroughArgs, moveCameraTo, phaseTools } from "./WalkthroughTools";
 import { walkthroughIntro } from "./Walkthrough00_Intro";
 import { walkthrough01_Prelim } from "./Walkthrough01_Prelim";
 import { walkthrough02_Embedding } from "./Walkthrough02_Embedding";
@@ -23,6 +23,7 @@ import { walkthrough10_CrossAttention } from "./Walkthrough10_CrossAttention";
 import { walkthrough11_DecoderStack } from "./Walkthrough11_DecoderStack";
 import { walkthrough12_Output } from "./Walkthrough12_Output";
 import { walkthroughVit01_Intro, walkthroughVit02_Embedding, walkthroughVit03_Encoder, walkthroughVit04_Head, walkthroughVit05_Attention } from "./WalkthroughVit";
+import { walkthroughBert01_Intro, walkthroughBert02_Input, walkthroughBert03_Attn, walkthroughBert04_Mlm, walkthroughBert05_PretrainFT, walkthroughBert06_Sentiment } from "./WalkthroughBert";
 
 /**
 
@@ -266,6 +267,14 @@ export function runWalkthrough(state: IProgramState, view: IRenderView) {
     walkthrough10_CrossAttention(wtArgs);
     walkthrough11_DecoderStack(wtArgs);
     walkthrough12_Output(wtArgs);
+
+    let bertArgs: IBertWalkthroughArgs = { ...wtArgs, layout: state.bert.layout };
+    walkthroughBert01_Intro(bertArgs);
+    walkthroughBert02_Input(bertArgs);
+    walkthroughBert03_Attn(bertArgs);
+    walkthroughBert04_Mlm(bertArgs);
+    walkthroughBert05_PretrainFT(bertArgs);
+    walkthroughBert06_Sentiment(bertArgs);
 
     let vitArgs: IVitWalkthroughArgs = { ...wtArgs, layout: state.vit.layout };
     walkthroughVit01_Intro(vitArgs);

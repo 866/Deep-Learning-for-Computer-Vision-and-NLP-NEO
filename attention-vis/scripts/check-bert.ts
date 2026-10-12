@@ -467,4 +467,59 @@ for (let text of ['', '   ', ' . , ; ']) {
     check('every phase in every group has a group', wt.phaseList.every(g => g.phases.every(p => typeof p.id === 'number')));
 }
 
+// ---- Task 9: the chapters may not invent numbers, and the figures may not lose their attribution ----
+// Two failure modes are specific to this kind of content and invisible to the typechecker: prose that
+// quietly states a nicer accuracy than the weights have, and a shipped figure whose credit got dropped
+// on the way into the <figcaption>. Both are checked here against the two files that are allowed to be
+// the source of truth: the committed model JSON and the chapter source.
+{
+    let src = fs.readFileSync('src/llm/walkthrough/WalkthroughBert.tsx', 'utf8');
+    let walkthroughSrc = fs.readFileSync('src/llm/walkthrough/Walkthrough.ts', 'utf8');
+
+    let metrics = model.config.metrics as Record<string, number>;
+    // the only percentages allowed in the chapter text are ones lifted from the paper itself; each one
+    // names the table it came from, so adding a number here means going and finding it
+    let allowedPercents: Record<string, string> = {
+        '15%': 'paper §3.1: the MLM masks 15% of token positions',
+        '80%': 'paper §3.1: of those, 80% become [MASK]',
+        '10%': 'paper §3.1: 10% a random token, 10% unchanged',
+        '93.5%': 'paper Table 1 (GLUE test): BERT-BASE, SST-2',
+        '92.7%': 'paper Table 3 (dev ablation): BERT-BASE, SST-2',
+        '92.6%': 'paper Table 3 (dev ablation): BERT-BASE without NSP, SST-2',
+    };
+    let literals = [...src.matchAll(/(?<![\w.])\d+(?:\.\d+)?%/g)].map(m => m[0]);
+    let stray = literals.filter(l => !(l in allowedPercents));
+    // 74.9% typed by hand instead of read from config.metrics is exactly how a doc rots
+    check('no accuracy literal in the chapters that is not from config.metrics or a cited paper table',
+        stray.length === 0, `found ${stray.join(', ')}`);
+
+    let metricsPercents = new Set(Object.values(metrics).filter(v => typeof v === 'number' && v > 0 && v <= 1)
+        .flatMap(v => [1, 2].map(dp => (v * 100).toFixed(dp) + '%')));
+    let duplicated = Object.keys(allowedPercents).filter(p => metricsPercents.has(p));
+    check('a cited paper figure is not confused with our own metric', duplicated.length === 0,
+        duplicated.map(p => `${p} is also one of ours (${allowedPercents[p]})`).join('; '));
+
+    for (let fn of ['walkthroughBert01_Intro', 'walkthroughBert02_Input', 'walkthroughBert03_Attn',
+                    'walkthroughBert04_Mlm', 'walkthroughBert05_PretrainFT', 'walkthroughBert06_Sentiment']) {
+        check(`${fn} is defined and called from the walkthrough`,
+            new RegExp(`export function ${fn}\\b`).test(src) && walkthroughSrc.includes(`${fn}(`));
+    }
+
+    // PaperFigure is the only route to the shipped figures; every caption must say whose figure it is
+    for (let fig of ['fig1-overview', 'fig2-input', 'fig3-comparison', 'fig4-fine-tune']) {
+        check(`${fig}.svg is served`, fs.existsSync(`public/bert-figs/${fig}.svg`));
+        let capLine = src.split('\n').find(l => l.includes(`'${fig}'`));
+        let cap = capLine ?? '';
+        check(`${fig}'s caption credits Devlin et al. and the arXiv id`,
+            cap.includes('Devlin') && cap.includes('1810.04805'), cap.slice(0, 70));
+    }
+
+    // the sentence box must commit on commit/debounce, not per keystroke (spec §8.2): a forward pass is
+    // ~15 ms and a keystroke rate will stall the render loop
+    let picker = src.slice(src.indexOf('export const SentencePicker'));
+    check('SentencePicker debounces rather than re-running on every keystroke',
+        /setTimeout\(/.test(picker) && /onKeyDown[\s\S]{0,200}Enter/.test(picker),
+        'no debounce timer or Enter handler found');
+}
+
 summary();
