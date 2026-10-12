@@ -418,18 +418,22 @@ layout and block-render buffers through the existing path.
 | --- | ---: |
 | tiny ViT forward (runs on *every pixel* you draw today) | 1.23 ms |
 | tiny Transformer full re-decode (6 sequential passes) | 4.15 ms |
-| **tiny BERT forward (one pass)** | **10.6 ms** |
+| **tiny BERT forward (one pass)** | **15.2 ms** (probe estimated 10.6 ms from the matmuls alone) |
 
-plus a 2.73 MiB texture re-upload. The 10.6 ms was measured by driving the repo's real `matmulWT` over
-BERT-TINY's exact shapes: Q/K/V/O projections, bidirectional scores + softmax + weighted V, both FFN
-layers, the MLM decode through the shared embedding matrix, and the softmax over V=600 for all 32
-positions.
+plus a 2.73 MiB texture re-upload. The 10.6 ms figure was a probe driving the repo's real `matmulWT`
+over BERT-TINY's exact shapes: Q/K/V/O projections, bidirectional scores + softmax + weighted V, both
+FFN layers, the MLM decode through the shared embedding matrix, and the softmax over V=600 for all 32
+positions. What `npm run check:bert` now measures instead is the shipped path — `setBertSentence`
+end to end, 20 passes, including the two `[CLS]` heads, the softmax normalisation, and the allocation
+churn the probe left out: **15.2 ms**, still the same order, and the number the guardrail below is
+stated against. (Halving the vocabulary softmax's `exp` calls — one pass to accumulate, one to scale —
+was worth ~0.7 ms of that, paid for by the pass running on every committed edit.)
 
 Guardrails baked into the design:
 
 - `setBertSentence` runs only from `state.bert.pendingSentence` inside `runProgram` — the ViT's existing
   pattern — and the picker sets that on **commit/debounce, not per keystroke**. Worst case is one
-  ~10–30 ms hitch per edit (browsers trail node on low-power cores), never per frame.
+  ~15 ms hitch per edit on the machine this was measured on (browsers trail node on low-power cores), never per frame.
 - The forward pass and GPU upload are never inside the render loop.
 - No new timers, autoplay or continuous animation: the walkthrough advances only on spacebar, and
   `LayerView.loop` already returns without rendering when nothing is dirty, so an idle tab stays ~0.
@@ -502,8 +506,9 @@ implementation time — default (a), fidelity:
 
 | risk | mitigation |
 | --- | --- |
-| **viewer's laptop overloaded** | measured (§8): BERT's always-on layout is the *cheapest* of the three (129 cubes / 0.5 ms vs 313 / 4.4 ms); 10.6 ms forward only on an explicit edit; 2.73 MiB VRAM; large shapes off by default; no new per-frame or timed work |
-| MLM accuracy too low to demo | measured (37.1% all masks, 28.9% frequent whole words) and designed *around*: chapter teaches the function-word/content-word split; numbers printed in the model card |
+| **viewer's laptop overloaded** | measured (§8): BERT's always-on layout is the *cheapest* of the three (129 cubes / 0.5 ms vs 313 / 4.4 ms); 15.2 ms forward only on an explicit edit; 2.73 MiB VRAM; large shapes off by default; no new per-frame or timed work |
+| MLM accuracy too low to demo | measured (37.1% all masks, 28.9% frequent whole words) and designed *around*: chapter teaches the function-word/content-word split; numbers printed in the model card. Measured consequence: on the fixed partials sentence masked at its mid-content position, gold `and` ranks #21 of 600 — so the MLM chapter must *choose* its demo mask (a function-word slot the model does get right) and say so, not present whichever position the exporter happened to pick |
+| demo position quietly cherry-picked to look good | the metric beside it is the honest aggregate (28.9%), printed in the same card; a reader typing their own sentence sees the same weak predictions the numbers describe |
 | NSP reads as a broken feature | stated as at-chance with the RoBERTa follow-up; it is Figure 1 fidelity, not a capability claim |
 | JS/Python tokenizer drift | token ids asserted in `npm run validate` |
 | `isVitPhase` ordinal bug breaking the ViT chapters | converted to phase sets in this change; covered by the ViT regression check |

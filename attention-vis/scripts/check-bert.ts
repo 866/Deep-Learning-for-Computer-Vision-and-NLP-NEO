@@ -3,7 +3,11 @@
 // Follows the same esbuild-bundle-then-node pattern as scripts/validate-model.ts.
 // Run: npm run check:bert
 import fs from 'fs';
-import { bertVocabFromConfig, wordpieceEncode } from '../src/llm/BertModel';
+import { TensorF32 } from '../src/utils/tensor';
+import {
+    bertSentiment, bertTopK, bertVocabFromConfig, createBertModel, IBertModelLink, setBertSentence,
+    uploadAllBert, wordpieceEncode,
+} from '../src/llm/BertModel';
 
 // Paths are relative to the package root, matching scripts/validate-model.ts: npm runs
 // scripts with cwd = package root, while __dirname here is node_modules/.cache (the
@@ -146,5 +150,153 @@ for (let text of throwCases) {
 }
 check('whitespace/punctuation/oversized/emoji inputs do not throw', thrown.length === 0, thrown.join('; '));
 check('every id they produce is a real vocab row', finite, mismatches.slice(-1).join(''));
+
+// ---- Task 4: the forward pass, its masks, and its cost (spec §8.2) ----
+// Same trick validate-model.ts uses: enough of a fake WebGL2 context that createBufferTex and
+// writeToBufferTex work, so the buffers under test are the real ones. writeToBufferTex throws
+// "Data length does not match" on any size slip, which is what the over-long-input test leans on.
+let gl: any = new Proxy({}, { get: (_t, p) => p === 'createTexture' ? () => ({}) : typeof p === 'string' && p.toUpperCase() === p ? 0 : () => {} });
+
+function loadTensors(file: string) {
+    let data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    for (let k in data) {
+        if (data[k].shape) data[k] = TensorF32.fromJson(data[k]);
+    }
+    return data;
+}
+
+let bertWeights = loadTensors('public/bert-sst2-model.json') as any;
+let bert: IBertModelLink = createBertModel(gl, bertWeights, 0);
+
+let short = 'great film';
+let shortReal = bert.inputBuf.findIndex(x => x === 0);   // first [PAD]
+setBertSentence(bert, short, [1]);
+check('a 2-word sentence leaves room for padding', shortReal > 4, `first pad at ${shortReal}`);
+check('short sentence is not flagged truncated', !bert.truncated);
+
+// every MLM row is a distribution over the vocabulary, including the rows the user will never look at
+{
+    let probs = bert.mlmProbs.localBuffer!;
+    let T = bert.shape.T, V = bert.shape.vocabSize;
+    let worstRow = 0;
+    for (let t = 0; t < T; t++) {
+        let sum = 0;
+        for (let i = 0; i < V; i++) sum += probs[t * V + i];
+        worstRow = Math.max(worstRow, Math.abs(sum - 1));
+    }
+    check('every mlmProbs row sums to 1', worstRow <= 1e-4, `worst |sum-1| = ${worstRow.toExponential(2)}`);
+}
+
+// the padding mask is the one thing here that can be subtly wrong and still produce plausible
+// numbers: [PAD] columns must carry exactly zero attention weight for a real query row, or every
+// cube's attention map is quietly diluted by the 20-odd padding positions
+{
+    let sm = bert.blocks[0].selfAttn.attnMatrixSoftmax.localBuffer!;
+    let { T, nHeads } = bert.shape;
+    let padCols: number[] = [];
+    for (let tk = 0; tk < T; tk++) if (bert.padBuf[tk]) padCols.push(tk);
+    let bad = 0;
+    let maxPad = 0;
+    for (let h = 0; h < nHeads; h++) {
+        for (let tq = 0; tq <= shortReal - 1; tq++) {          // real query rows only
+            for (let tk of padCols) {
+                let v = sm[(h * T + tq) * T + tk];
+                if (v !== 0) { bad++; maxPad = Math.max(maxPad, v); }
+            }
+        }
+    }
+    check('pad columns get exactly 0 attention', bad === 0, `${bad} non-zero pad entries, max ${maxPad}`);
+    check('pad columns carry the -1e9 sentinel pre-softmax',
+        bert.blocks[0].selfAttn.attnMatrix.localBuffer![(shortReal) * T + (T - 1)] === -1e9,
+        `saw ${bert.blocks[0].selfAttn.attnMatrix.localBuffer![(shortReal) * T + (T - 1)]}`);
+    // and a real row still attends to something: an all-masked softmax would be NaN or uniform
+    let rowSum = 0;
+    for (let tk = 0; tk < T; tk++) rowSum += sm[tk];
+    check('a real query row distributes its full weight over real keys', Math.abs(rowSum - 1) < 1e-5, `sum ${rowSum}`);
+}
+
+// spec §9 Review Focus #4: a sentence far longer than the window must truncate, not corrupt
+{
+    let long = Array.from({ length: 120 }, (_, i) => 'word' + (i % 7)).join(' ');
+    let threw = '';
+    try {
+        setBertSentence(bert, long, [2]);
+        uploadAllBert(bert);
+    } catch (e) {
+        threw = `${e}`;
+    }
+    check('a 120-word sentence does not throw', threw === '', threw);
+    check('a 120-word sentence is reported as truncated', bert.truncated === true);
+    let consistent = true;
+    for (let t = 0; t < bert.shape.T; t++) {
+        if ((bert.inputBuf[t] === bertVocabFromConfig(bert.config).pad) !== (bert.padBuf[t] === 1)) consistent = false;
+    }
+    check('padBuf agrees with inputBuf position by position', consistent);
+}
+
+// spec §9: degenerate inputs must leave the model showing numbers, not NaN
+for (let text of ['', '   ', ' . , ; ']) {
+    let threw = '';
+    try {
+        setBertSentence(bert, text, [0]);
+    } catch (e) {
+        threw = `${e}`;
+    }
+    let badBuffers = 0;
+    for (let buf of [bert.embed.localBuffer, bert.mlmProbs.localBuffer, bert.sentimentProbs.localBuffer,
+                     bert.blocks[0].selfAttn.attnMatrixSoftmax.localBuffer, bert.blocks[1].ln2.output.localBuffer]) {
+        for (let i = 0; i < buf!.length; i++) if (!isFinite(buf![i])) badBuffers++;
+    }
+    check(`input ${JSON.stringify(text)}: no throw, all buffers finite`, threw === '' && badBuffers === 0,
+        `${threw} ${badBuffers} non-finite values`);
+}
+
+{
+    setBertSentence(bert, partials.text, [partials.mlmTarget]);
+    let top = bertTopK(bert, partials.mlmTarget, 4);
+    let ordered = top.every((o, i) => i === 0 || o.p <= top[i - 1].p + 1e-12);
+    let known = top.every(o => bert.config.vocab.includes(o.tok));
+    check('bertTopK returns 4 known tokens in order', top.length === 4 && known && ordered,
+        `${top.length} entries, known=${known}, ordered=${ordered}`);
+
+    // deliberately NOT an assertion that the model is right here: MLM top-1 on frequent whole words
+    // measures config.metrics.mlm_top1_frequent (28.9%), so a chapter that always showed the gold
+    // token on top would be theatre and the first reader who types their own sentence would see
+    // through it. What the helper owes the chapter is that its numbers are the buffers' numbers.
+    let probs = bert.mlmProbs.localBuffer!;
+    let V = bert.shape.vocabSize;
+    let pos = partials.mlmTarget;
+    let agreesWithBuffer = top.every(o => {
+        let id = bert.config.vocab.indexOf(o.tok);
+        return Math.abs(probs[pos * V + id] - o.p) < 1e-9;
+    });
+    check('bertTopK reports the same probabilities the buffers hold', agreesWithBuffer);
+
+    let goldId = bert.config.vocab.indexOf(partials.mlmTargetToken);
+    let goldP = probs[pos * V + goldId];
+    let goldRank = 1;
+    for (let i = 0; i < V; i++) if (probs[pos * V + i] > goldP) goldRank++;
+    console.log(`     for "${partials.text}" masked at ${pos}: gold "${partials.mlmTargetToken}" ranks #${goldRank} of ${V} `
+        + `(top-1 here: ${top[0].tok} at ${(top[0].p * 100).toFixed(1)}%) — MLM accuracy is reported as `
+        + `${(bert.config.metrics.mlm_top1_frequent * 100).toFixed(1)}% on frequent whole words, so this is the honest case, not a bug`);
+
+    let sp = bert.sentimentProbs.localBuffer!;
+    let s = bertSentiment(bert);
+    check('bertSentiment agrees with sentimentProbs', s.prob === Math.max(sp[0], sp[1]) && s.label === (sp[1] >= sp[0] ? 1 : 0),
+        `got label=${s.label} prob=${s.prob}`);
+}
+
+// spec §8.2 measured 10.6 ms per pass with these helpers; the budget claim depends on it, so a
+// surprise here should stop the work rather than ship quietly
+{
+    setBertSentence(bert, partials.text);            // warm up any lazy state
+    let t0 = Date.now();
+    for (let i = 0; i < 20; i++) {
+        setBertSentence(bert, i % 2 ? partials.text : partials.sentences[3].text, [partials.mlmTarget]);
+    }
+    let ms = (Date.now() - t0) / 20;
+    console.log(`     forward pass: ${ms.toFixed(2)} ms per re-run of the whole model (spec §8.2 measured 10.6 ms)`);
+    check('a full re-run stays inside the §8.2 budget', ms < 21.2, `${ms.toFixed(2)} ms > 2x the measured 10.6 ms`);
+}
 
 summary();
