@@ -256,11 +256,13 @@ export interface IBertModelLink {
     pool: ILinearLayerLink;    // C x C, tanh-applied — used by NSP only, never by the classifier
     nsp: ILinearLayerLink;     // 2 x C
     nspLogits: IBufferTex;     // 1 x 2 (the same texture as nsp.output)
+    nspAgg: IBufferTex;        // 1 x 1 x [1/sum, max]
     nspProbs: IBufferTex;      // 1 x 2
 
     clsWeight: IBufferTex;     // 2 x C, applied to the raw [CLS] vector (paper §4.1: no pooler)
     clsBias: IBufferTex;
     sentimentLogits: IBufferTex;   // 1 x 2
+    sentimentAgg: IBufferTex;      // 1 x 1 x [1/sum, max]
     sentimentProbs: IBufferTex;    // 1 x 2
 
     examples: { text: string; label: number; ids: number[] }[];
@@ -381,10 +383,12 @@ export function createBertModel(gl: WebGL2RenderingContext, weights: IBertWeight
         pool: linear('pool', C, C, true, 1),
         nsp,
         nspLogits: nsp.output,
+        nspAgg: tex(1, 1, 2),
         nspProbs: tex(1, 2),
         clsWeight: weightTex('cls.weight', 2, C),
         clsBias: weightTex('cls.bias', 2, 1),
         sentimentLogits: tex(1, 2),
+        sentimentAgg: tex(1, 1, 2),
         sentimentProbs: tex(1, 2),
         examples: [],
         masked: [],
@@ -527,11 +531,15 @@ export function runBertModel(model: IBertModelLink) {
     model.pool.output.localBuffer = pooled;
     let nspLogits = matmulWT(pooled, model.nsp.weight.localBuffer!, 1, C, 2, model.nsp.bias!.localBuffer!);
     model.nsp.output.localBuffer = nspLogits;
-    model.nspProbs.localBuffer = softmaxRows(nspLogits, 1, 2).probs;
+    let nspSm = softmaxRows(nspLogits, 1, 2);
+    model.nspAgg.localBuffer = nspSm.agg;
+    model.nspProbs.localBuffer = nspSm.probs;
 
     let sentLogits = matmulWT(cls, model.clsWeight.localBuffer!, 1, C, 2, model.clsBias.localBuffer!);
     model.sentimentLogits.localBuffer = sentLogits;
-    model.sentimentProbs.localBuffer = softmaxRows(sentLogits, 1, 2).probs;
+    let sentSm = softmaxRows(sentLogits, 1, 2);
+    model.sentimentAgg.localBuffer = sentSm.agg;
+    model.sentimentProbs.localBuffer = sentSm.probs;
 }
 
 /** Top-k most likely tokens for one position, straight out of the MLM distribution. */
@@ -558,8 +566,8 @@ function allBertBuffers(model: IBertModelLink): IBufferTex[] {
     let bufs: IBufferTex[] = [
         model.embedWeight, model.segEmbed, model.posEmbed, model.embed, model.tokens, model.segIds,
         model.mlmBias, model.mlmLogits, model.mlmAgg, model.mlmProbs,
-        model.nspLogits, model.nspProbs, model.clsWeight, model.clsBias,
-        model.sentimentLogits, model.sentimentProbs,
+        model.nspLogits, model.nspAgg, model.nspProbs, model.clsWeight, model.clsBias,
+        model.sentimentLogits, model.sentimentAgg, model.sentimentProbs,
     ];
     let lin = (l: ILinearLayerLink) => [l.weight, l.bias, l.output].filter(a => a) as IBufferTex[];
     let ln = (l: ILayerNormLayerLink) => [l.normAgg, l.normWeight, l.normBias, l.output];

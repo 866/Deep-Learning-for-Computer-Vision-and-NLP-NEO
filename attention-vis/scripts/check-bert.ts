@@ -9,6 +9,7 @@ import {
     uploadAllBert, wordpieceEncode,
 } from '../src/llm/BertModel';
 import { embedTable, genGptModelLayout, inputEmbedParts } from '../src/llm/GptModelLayout';
+import { genBertModelLayout } from '../src/llm/BertModelLayout';
 import { configToShape } from '../src/llm/TransformerModel';
 
 // Paths are relative to the package root, matching scripts/validate-model.ts: npm runs
@@ -327,6 +328,48 @@ for (let text of ['', '   ', ' . , ; ']) {
         let decParts = inputEmbedParts(trLayout.dec.residual0);
         check('the decoder input-embed block resolves too', !!decParts && decParts.tables.length === 2);
     }
+}
+
+// ---- Task 6: the 3D layout, and the laptop budget that constrains it (spec §8.1) ----
+{
+    // 20 generations, timed: this runs on every hover-driven layout rebuild, so a slow layout is a
+    // slow viewer. The spec's guardrail is 2 ms mean.
+    let t0 = performance.now();
+    let layout = genBertModelLayout(bert.shape);
+    for (let i = 0; i < 19; i++) {
+        genBertModelLayout(bert.shape);
+    }
+    let genMs = (performance.now() - t0) / 20;
+
+    check('layout identifies its family', layout.kind === 'bert', layout.kind);
+    check('one layout block per transformer layer', layout.blocks.length === bert.shape.nBlocks,
+        `${layout.blocks.length} vs ${bert.shape.nBlocks}`);
+    check(`layout fits the laptop cube budget (<= 160)`, layout.cubes.length <= 160,
+        `${layout.cubes.length} cubes`);
+    check(`layout generation is cheap (mean ${genMs.toFixed(2)} ms <= 2 ms)`, genMs <= 2, `${genMs.toFixed(3)} ms`);
+    console.log(`       layout: ${layout.cubes.length} cubes, ${genMs.toFixed(2)} ms/gen, height ${layout.height.toFixed(1)}`);
+
+    let badDim = layout.cubes.filter(b => ![b.x, b.y, b.z, b.dx, b.dy, b.dz].every(Number.isFinite) || b.dx <= 0 || b.dy <= 0 || b.dz <= 0);
+    check('every cube has finite, positive extent', badDim.length === 0,
+        badDim.map(b => `${b.name}(${b.dx},${b.dy},${b.dz})`).join(', '));
+    check('every cube records its own index', layout.cubes.every((b, i) => b.idx === i));
+    check('layout has labels', layout.labels.length > 0, `${layout.labels.length}`);
+    let cubeSet = new Set(layout.cubes);
+    let orphans = layout.labels.flatMap(l => l.cubes).filter(c => !cubeSet.has(c));
+    check('every labelled cube is in the layout', orphans.length === 0, `${orphans.length} orphans: ${orphans.slice(0, 3).map(o => o.name).join(', ')}`);
+    check('layout has positive height', layout.height > 0, `${layout.height}`);
+    check('weight count covers the architecture', layout.weightCount > 0 && Number.isFinite(layout.weightCount), `${layout.weightCount}`);
+}
+
+// ---- Task 6: the layout must point at the real buffers, not placeholders ----
+{
+    let layout = genBertModelLayout(bert.shape, bert);
+    check('the embedding block reads model.embed', layout.residual0.access?.src === bert.embed);
+    check('the MLM probabilities block reads model.mlmProbs', layout.mlmProbs.access?.src === bert.mlmProbs);
+    check('the sentiment block reads model.sentimentProbs', layout.sentimentProbs.access?.src === bert.sentimentProbs);
+    check('the token row reads model.tokens', layout.tokens.access?.src === bert.tokens);
+    check('the embed LN block reads the embedding norm output', layout.embedLN.lnResid.access?.src === bert.embedLN.output);
+    check('block 1 reads its own attention output', layout.blocks[1].attn.attnOut.access?.src === bert.blocks[1].selfAttn?.proj.output);
 }
 
 summary();

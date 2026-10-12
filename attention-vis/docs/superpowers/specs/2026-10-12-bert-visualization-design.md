@@ -399,16 +399,18 @@ not estimated. Probe method is given with each table.
 | --- | ---: | ---: | --- |
 | tiny Transformer | 313 | 4.4 ms | always on today |
 | tiny ViT | 146 | 2.5 ms | always on today |
-| **tiny BERT (proposed)** | **129** | **0.5 ms** | always on |
+| **tiny BERT (shipped)** | **141** | **0.32 ms** | always on |
 | Transformer (base) | 1 903 | 7.7 ms | optional (today) |
 | BERT-BASE | 2 309 | 7.3 ms | optional |
 | ViT-Huge/14 | 7 890 | 23.7 ms | optional (today) |
 | BERT-LARGE | 5 933 | 45.4 ms | optional |
 
 Measured by driving the repo's own `createLayoutBuilder` / `genGptModelLayout` / `genVitModelLayout` in
-node (BERT counted through the real builder, mirroring the block sequence §4 describes).
-**Conclusion: BERT's always-on layout is the cheapest of the three** — fewer blocks than the tiny ViT,
-~41% of the tiny Transformer's — so steady-state frame cost *drops* rather than rises. BERT-LARGE sits
+node; the BERT row is now the shipped `genBertModelLayout` itself, counted with its MLM head drawn in
+full (dense \u2192 GELU \u2192 LayerNorm \u2192 tied projection, plus each head's softmax-aggregate pair), which is
+why it grew from the 129 the plan-phase estimate gave.
+**Conclusion: BERT's always-on layout is the cheapest of the three** \u2014 fewer cubes than the tiny ViT,
+~45% of the tiny Transformer's \u2014 so steady-state frame cost *drops* rather than rises. BERT-LARGE sits
 between two shapes that already ship; its 45 ms is one-off on toggle-on, and toggling off frees its
 layout and block-render buffers through the existing path.
 
@@ -506,7 +508,7 @@ implementation time — default (a), fidelity:
 
 | risk | mitigation |
 | --- | --- |
-| **viewer's laptop overloaded** | measured (§8): BERT's always-on layout is the *cheapest* of the three (129 cubes / 0.5 ms vs 313 / 4.4 ms); 15.2 ms forward only on an explicit edit; 2.73 MiB VRAM; large shapes off by default; no new per-frame or timed work |
+| **viewer's laptop overloaded** | measured (§8): BERT's always-on layout is the *cheapest* of the three (141 cubes / 0.32 ms vs 313 / 4.4 ms); 15.2 ms forward only on an explicit edit; 2.73 MiB VRAM; large shapes off by default; no new per-frame or timed work |
 | MLM accuracy too low to demo | measured (37.1% all masks, 28.9% frequent whole words) and designed *around*: chapter teaches the function-word/content-word split; numbers printed in the model card. Measured consequence: on the fixed partials sentence masked at its mid-content position, gold `and` ranks #21 of 600 — so the MLM chapter must *choose* its demo mask (a function-word slot the model does get right) and say so, not present whichever position the exporter happened to pick |
 | demo position quietly cherry-picked to look good | the metric beside it is the honest aggregate (28.9%), printed in the same card; a reader typing their own sentence sees the same weak predictions the numbers describe |
 | NSP reads as a broken feature | stated as at-chance with the RoBERTa follow-up; it is Figure 1 fidelity, not a capability claim |
