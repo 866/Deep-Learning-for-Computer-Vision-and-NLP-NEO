@@ -1,0 +1,4 @@
+node_modules
+dist
+training/__pycache__
+training/*.pt
