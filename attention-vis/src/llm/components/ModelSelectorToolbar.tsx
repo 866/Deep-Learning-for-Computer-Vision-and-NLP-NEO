@@ -101,20 +101,31 @@ export const ModelSelectorToolbar: React.FC<{
         progState.markDirty();
     }
 
-    let transformers = progState.examples.filter(e => e.family === 'transformer');
-    let vits = progState.examples.filter(e => e.family === 'vit');
-    let berts = progState.examples.filter(e => e.family === 'bert');
+    let transformerExamples = progState.examples.filter(e => e.family === 'transformer');
+    let vitExamples = progState.examples.filter(e => e.family === 'vit');
+    let bertExamples = progState.examples.filter(e => e.family === 'bert');
+
+    // One row per model family, keyed by the Family union rather than hand-written JSX per family.
+    // The hand-written version rendered two rows and compiled: BERT had a main card, two paper
+    // shapes and a `berts` filter, and nothing on screen - its chapters were unreachable from the
+    // canvas. Keyed by Family, a family without a row is a type error. Insertion order is the
+    // on-screen order; `leading` puts a paper shape to the left of its tiny model (Transformer's
+    // base sits left of the tiny one, which is how the row was laid out before BERT existed).
+    let rows: Record<Family, { leading?: IModelExample; rest: IModelExample[] }> = {
+        transformer: { leading: transformerExamples[0], rest: transformerExamples.slice(1) },
+        vit: { rest: vitExamples },
+        bert: { rest: bertExamples },
+    };
 
     return <div className='absolute top-0 left-0 flex flex-col'>
-        <div className='mt-2 ml-2 flex flex-row flex-wrap items-center'>
-            {transformers[0] && makeButton(transformers[0])}
-            {makeMainButton('transformer')}
-            {transformers.slice(1).map(makeButton)}
-        </div>
-        <div className='ml-2 flex flex-row flex-wrap items-center'>
-            {makeMainButton('vit')}
-            {vits.map(makeButton)}
-        </div>
+        {(Object.keys(rows) as Family[]).map(kind => {
+            let { leading, rest } = rows[kind];
+            return <div key={kind} className={clsx('flex flex-row flex-wrap items-center', kind === 'transformer' ? 'mt-2 ml-2' : 'ml-2')}>
+                {leading && makeButton(leading)}
+                {makeMainButton(kind)}
+                {rest.map(makeButton)}
+            </div>;
+        })}
         <div className='ml-2 flex flex-row'>
             <div className={clsx('m-2 p-2 bg-white min-w-[2rem] flex justify-center rounded shadow cursor-pointer hover:bg-blue-300')} onClick={onExpandClick}>
                 <FontAwesomeIcon icon={faExpand} />

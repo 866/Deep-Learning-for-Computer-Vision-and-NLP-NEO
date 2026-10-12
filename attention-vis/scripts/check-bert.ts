@@ -13,6 +13,14 @@ import { genBertModelLayout } from '../src/llm/BertModelLayout';
 import { bertArrowPlan, drawBertArrows } from '../src/llm/components/Arrow';
 import { drawBertBlockLabels } from '../src/llm/components/SectionLabels';
 import { bertMlmChartRegion, drawBertModelCard } from '../src/llm/components/ModelCard';
+import React from 'react';
+import ReactDOMServer from 'react-dom/server';
+import { ProgramStateContext } from '../src/llm/Sidebar';
+import { ModelSelectorToolbar } from '../src/llm/components/ModelSelectorToolbar';
+import { IModelExample } from '../src/llm/Program';
+import { Family } from '../src/llm/walkthrough/Walkthrough';
+import { Vec3 } from '../src/utils/vector';
+import { Mat4f } from '../src/utils/matrix';
 import { familyOfPhase, initWalkthrough, isBertPhase, isVitPhase, Phase, PhaseGroup } from '../src/llm/walkthrough/Walkthrough';
 import { phaseTools } from '../src/llm/walkthrough/WalkthroughTools';
 import { genGptModelLayout } from '../src/llm/GptModelLayout';
@@ -622,6 +630,56 @@ for (let text of ['', '   ', ' . , ; ']) {
     });
     check('defaultMaskPos never picks [CLS], a [SEP] or an out-of-range column', badPos.length === 0,
         badPos.map(ids => JSON.stringify(ids)).join(' '));
+}
+
+// ---- The toolbar must offer every model family, not just the two that were there first ----
+// The data layer is a Record keyed by Family, which forced a BERT entry everywhere; the render
+// layer was hand-written JSX per family, and silently kept rendering two rows. Rendering the real
+// component is the only check that sees that class of bug, so it gets rendered for real.
+{
+    let toolbarBertLayout = genBertModelLayout(bert.shape, bert);
+    let rowFor = (family: Family, name: string): IModelExample => ({
+        name, family, shape: toolbarBertLayout.shape, offset: new Vec3(0, 0, 0), modelCardOffset: new Vec3(0, 0, 0),
+        camera: { center: new Vec3(), angle: new Vec3(270, 10, 1) }, enabled: false, blockRender: null!,
+    });
+    let toolbarState: any = {
+        examples: [
+            rowFor('transformer', 'Transformer (base)'), rowFor('transformer', 'Transformer (big)'),
+            rowFor('vit', 'ViT-Base/16'), rowFor('vit', 'ViT-Large/16'), rowFor('vit', 'ViT-Huge/14'),
+            rowFor('bert', 'BERT-Base'), rowFor('bert', 'BERT-Large'),
+        ],
+        // the same three names Program.ts gives the always-on models at the origin
+        mainExample: rowFor('transformer', 'Tiny Transformer'),
+        vitMainExample: rowFor('vit', 'Tiny ViT'),
+        bertMainExample: rowFor('bert', 'Tiny BERT'),
+        currExampleId: -1, mainKind: 'transformer',
+        walkthrough: { phase: Phase.Intro_Intro },
+        camera: { desiredCamera: null, modelMtx: new Mat4f() },
+        mainLayout: toolbarBertLayout, markDirty: () => {},
+    };
+
+    let html = '';
+    let renderErr = '';
+    try {
+        html = ReactDOMServer.renderToString(
+            React.createElement(ProgramStateContext.Provider, { value: toolbarState }, React.createElement(ModelSelectorToolbar, {})));
+    } catch (e) {
+        renderErr = (e as Error).message;
+    }
+    check('the toolbar renders', renderErr === '', renderErr);
+
+    // one row per family, offering its always-on model; the row's button is the only way into that
+    // family's chapters from the canvas, so a family missing here is a family the user cannot reach
+    let mainNames: [Family, string][] = [['transformer', 'Tiny Transformer'], ['vit', 'Tiny ViT'], ['bert', 'Tiny BERT']];
+    for (let [family, name] of mainNames) {
+        let count = html.split(name).length - 1;
+        check(`the toolbar offers ${name}`, count >= 1, `${name} does not appear in the rendered toolbar`);
+    }
+    check('the toolbar offers the two BERT paper shapes', html.includes('BERT-Base') && html.includes('BERT-Large'),
+        `BERT-Base ${html.includes('BERT-Base')} BERT-Large ${html.includes('BERT-Large')}`);
+    // the row layout a person actually sees, for the record
+    let labels = [...html.matchAll(/<div[^>]*class="[^"]*cursor-pointer[^"]*"[^>]*>([^<]+)</g)].map(m => m[1].replace(/&amp;/g, '&'));
+    console.log(`     toolbar rows: ${JSON.stringify(labels.join(' | '))}`);
 }
 
 summary();
