@@ -43,17 +43,22 @@ end. The values below are the **shipped** run's, read from `config.metrics` in t
 | quantity | measured | how |
 | --- | --- | --- |
 | parameters | **512,348** | L=2, H=128, A=2, dFF=512, T=32, V=600 |
-| sentiment, SST-2 dev | **74.3%** (probe 74.4%) | 4 fine-tune epochs after pre-training, all 872 rows |
-| sentiment, sentences that fit whole | **83.2%** | the 267/872 rows under MAXP; the rest are seen truncated |
+| sentiment, SST-2 dev | **74.9%** | 4 fine-tune epochs after pre-training, all 872 rows |
+| sentiment, sentences that fit whole | **80.9%** | the 267/872 rows under MAXP; the rest are seen truncated |
 | majority-class baseline | **50.9%** | label balance of the 872 dev rows |
-| MLM masked top-1 (all masks) | **37.8%** (probe 38.2%) | 20 000 pre-train steps, dev, 3 mask seeds |
+| MLM masked top-1 (all masks) | **37.1%** (probe 38.2%) | 20 000 pre-train steps, dev, 3 mask seeds |
 | MLM masked top-1 (frequent whole words) | **28.9%** (probe 30.9%) | n=5 216 masks on non-`##` tokens with corpus freq ≥ 100 |
-| NSP held-out accuracy | **50.0% — at chance** (loss 0.693 = ln 2) | 436 adjacent vs 436 random-partner pairs |
+| NSP held-out accuracy | **50.6% — at chance** (loss 0.693 = ln 2) | 436 adjacent vs 436 random-partner pairs |
 | dev sentences truncated | **69.4%** (605/872) | median dev review is 39 WordPiece pieces, MAXP = T−3 = 29 |
 | WordPiece V=600, dev sentences with zero `[UNK]` | **99.7%** | 869/872 |
 | word-level (non-subword) vocab instead | 8–10 usable dev rows | rejected: no honest accuracy possible |
 
 Two consequences that the design must respect:
+
+Runs are not bit-reproducible (the seeds fix initialisation and data order, not the GPU's reductions).
+Three full runs gave sentiment 74.31% / 74.43% / 74.89% and MLM 37.76% / 36.09% / 37.13%, all
+comfortably inside `verify()`'s floors (0.70 / 0.30). The table is the committed artifact's numbers;
+after a retrain, read them from `config.metrics` in `public/bert-sst2-model.json` rather than here.
 
 - **MLM is weak on content words and good on function words** (`of` → 75%, `to` → 62%, `sp` → 96%,
   but `##c` → `##t`). The chapter teaches bidirectionality *through* that pattern rather than
@@ -292,12 +297,12 @@ style, not a generic refactor of the existing two.
 
 | # | phase id | content, and the paper material it uses |
 | --- | --- | --- |
-| 1 | `Bert_Intro` | Figure 1 (shipped image). Pre-train → fine-tune; "only the output layer changes". Model card: 512,348 params, 74.4% dev vs 50.9% baseline. Quotes the abstract's "conceptually simple and empirically powerful". |
+| 1 | `Bert_Intro` | Figure 1 (shipped image). Pre-train → fine-tune; "only the output layer changes". Model card: 512,348 params, dev accuracy vs 50.9% baseline (both from `config.metrics`, not hard-coded). Quotes the abstract's "conceptually simple and empirically powerful". |
 | 2 | `Bert_Input` | Figure 2 (shipped image) **plus a live strip** built from the real `wordpieceEncode` of the current sentence, so the reader sees `char ##m ##ing` the way the figure shows `play ##ing`. Then the hoverable token/segment/position sum → z₀ → LayerNorm. `[CLS]`, `[SEP]`, `[MASK]` roles. |
 | 3 | `Bert_Attn` | Figure 3 (shipped image). BERT's full attention matrix vs the *same* Q/K values with a causal mask applied (drawn from the running model's real `attnMatrixSoftmax`, captioned "if it were masked, as GPT does") vs a note on ELMo's shallow bidirectionality. Reuses `lowerTri` for the masked rendering. |
-| 4 | `Bert_Mlm` | §3.1 Task #1 verbatim logic: 15% of positions, then 80/10/10 (mask/random/unchanged). Live top-k for a chosen `[MASK]` via `bertTopK`. Honest numbers: 38.2% overall, 30.9% on frequent whole words; the function-word/content-word split explained. |
+| 4 | `Bert_Mlm` | §3.1 Task #1 verbatim logic: 15% of positions, then 80/10/10 (mask/random/unchanged). Live top-k for a chosen `[MASK]` via `bertTopK`. Honest numbers from `config.metrics`: 37.1% overall, 28.9% on frequent whole words; the function-word/content-word split explained. |
 | 5 | `Bert_PretrainFT` | §3.1 Task #2 (NSP) with the pooler head, **reporting the chance result** and the RoBERTa follow-up. Then §3.2: fine-tuning swaps only the head; Figure 4 (shipped image) for the task zoo; the degenerate text-∅ pair that our single-sentence demo is. |
-| 6 | `Bert_Sentiment` | §4.1: `log(softmax(C Wᵀ))`, K=2, `W ∈ ℝ^{2×128}` shown as real blocks. Interactive `SentencePicker` (pattern of `SourcePicker`/`VitImagePicker`) re-running the whole model per edit; 74.4% on 872 real dev rows; truncation rate; BERT-BASE/LARGE toolbar note; L/H/A scaling table like `VitSizesTable`. |
+| 6 | `Bert_Sentiment` | §4.1: `log(softmax(C Wᵀ))`, K=2, `W ∈ ℝ^{2×128}` shown as real blocks. Interactive `SentencePicker` (pattern of `SourcePicker`/`VitImagePicker`) re-running the whole model per edit; 74.9% on 872 real dev rows (80.9% on the 267 that fit whole); truncation rate; BERT-BASE/LARGE toolbar note; L/H/A scaling table like `VitSizesTable`. |
 
 `TocDiagram.tsx` gains a BERT band so the table of contents shows three families; `App.tsx` gains a
 header link to `https://arxiv.org/abs/1810.04805`.
@@ -428,7 +433,7 @@ load transfers roughly 2 MiB more.
 Invisible on `npm run dev` (localhost); it only matters if the site is deployed. Two levers, decided at
 implementation time — default (a), fidelity:
 
-- **(a)** ship it: ~2.6 MiB JSON, keeps BERT-TINY's published dims and the measured 74.4% accuracy;
+- **(a)** ship it: ~2.6 MiB JSON, keeps BERT-TINY's published dims and the measured dev accuracy;
 - **(b)** shrink to H=64 (~150 k params, ~0.8 MB) — no longer BERT-TINY's configuration, and its
   accuracy would be **unmeasured**, so choosing (b) requires re-running the training probe and
   rewriting §2 before any chapter text quotes a number.
@@ -453,7 +458,7 @@ implementation time — default (a), fidelity:
 ## 10. Verification plan (evidence before claims)
 
 1. `python training/train_bert.py` → prints and embeds the measured metrics; compare the printed
-   sentiment dev accuracy against the design's 74.4% claim and update this spec if the real run differs.
+   sentiment dev accuracy against `config.metrics` in the shipped JSON and update this spec if the real run differs.
 2. `npm run validate` → JS vs PyTorch, all three families, `OK` with worst diff < 1e-3.
 3. `npm run typecheck` → clean.
 4. `npm run build` → succeeds; record the added JSON payload size.
@@ -477,12 +482,12 @@ implementation time — default (a), fidelity:
 | risk | mitigation |
 | --- | --- |
 | **viewer's laptop overloaded** | measured (§8): BERT's always-on layout is the *cheapest* of the three (129 cubes / 0.5 ms vs 313 / 4.4 ms); 10.6 ms forward only on an explicit edit; 2.73 MiB VRAM; large shapes off by default; no new per-frame or timed work |
-| MLM accuracy too low to demo | measured (38.2%) and designed *around*: chapter teaches the function-word/content-word split; numbers printed in the model card |
+| MLM accuracy too low to demo | measured (37.1% all masks, 28.9% frequent whole words) and designed *around*: chapter teaches the function-word/content-word split; numbers printed in the model card |
 | NSP reads as a broken feature | stated as at-chance with the RoBERTa follow-up; it is Figure 1 fidelity, not a capability claim |
 | JS/Python tokenizer drift | token ids asserted in `npm run validate` |
 | `isVitPhase` ordinal bug breaking the ViT chapters | converted to phase sets in this change; covered by the ViT regression check |
 | T=32 truncation distorting claims | truncation rate measured and shown; sentences in the picker chosen to fit |
-| 69.4% of dev sentences truncated at T=32 (measured; an early estimate said 23%) | accuracy reported on the full 872 with truncation **and** on the 267 that fit whole (74.3% / 83.2%), stated as such in the chapter |
+| 69.4% of dev sentences truncated at T=32 (measured; an early estimate said 23%) | accuracy reported on the full 872 with truncation **and** on the 267 that fit whole (74.9% / 80.9%), stated as such in the chapter |
 | payload size (600-token vocab + 512k params) | measured: `bert-sst2-model.json` 2.62 MiB + `bert-sst2-partials.json` 0.63 MiB = **3.25 MiB** of JSON, disclosed in §8.4 with the H=64 fallback recorded |
 | figure licensing | attribution file + caption on every use; user-approved decision |
 | training needs CUDA to be quick | measured 249 steps/s GPU (~2 min) vs 10.8 steps/s CPU (~44 min); not on the viewing path (JSON committed); `--steps`/`--fast` documented |

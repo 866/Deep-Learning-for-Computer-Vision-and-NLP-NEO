@@ -13,6 +13,12 @@ these files, so every number the visualization shows is measured rather than inv
 Module attributes are named to match the exported tensor names (blocks.i.ln1, blocks.i.ffn.fc1,
 ...) so the export needs no per-block renaming and a missing tensor is obvious.
 
+Reproducibility: the seeds fix initialisation and data order, but not the GPU's reductions, so a
+re-run drifts. Two full runs here gave sentiment 74.31% / 74.43% and MLM 37.76% / 36.09% — both
+comfortably above verify()'s floors, but not bit-identical. The metrics the README and the design
+spec quote are the ones inside the committed public/bert-sst2-model.json; if you retrain, read
+them from that file rather than trusting an older document.
+
 Two deliberate departures from the throwaway probes this design was measured with: a masked
 position keeps its *original* token for the last 10% of the 15% (the paper's 80/10/10 is
 mask / random token / unchanged; a probe had used [UNK] there), and a Next-Sentence positive
@@ -518,11 +524,17 @@ def main():
                 'rawIds': raw, 'rawToks': [vocab[t] for t in raw]}
 
     # 20 tokenizer fixtures for the browser-side WordPiece check: real dev sentences, then the
-    # edge cases a hand-written tokenizer gets wrong (UNK, truncation, punctuation-only,
-    # apostrophes, punctuation glued to words, empty input)
-    fixtures = [fixture(dev[i][0]) for i in range(14)]
+    # edge cases a hand-written tokenizer gets wrong (truncation, punctuation-only, apostrophes,
+    # punctuation glued to words, empty input).
+    #
+    # The [UNK] case has to come from the real data: at V=600 the vocabulary covers every ASCII
+    # character, so even "zzyzx" decomposes into z ##z ##y ##z ##x and no made-up English word can
+    # trigger [UNK]. Only 3 of the 872 dev rows do (two non-ASCII vowels and "100 %"), and Task 3's
+    # JS tokenizer needs one of them or its [UNK] branch ships untested.
+    unk_i = next(i for i in range(len(dev)) if UNK in tk.encode(dev[i][0]).ids)
+    fixtures = [fixture(dev[i][0]) for i in range(13)] + [fixture(dev[unk_i][0])]
     fixtures += [fixture(t) for t in [
-        'the zzyzx quixotry of unobtainium',
+        'the zzyzx quixotry of unobtainium',        # -> pure character-level pieces, no [UNK]
         'this movie was so good that i would gladly watch it again next year and the year after '
         'that and probably a third time with friends too',
         '!!! ... ??? --',
@@ -531,7 +543,13 @@ def main():
         '',
     ]]
     assert len(fixtures) == 20, f'{len(fixtures)} fixtures, expected 20'
+    assert any('[UNK]' in x['rawToks'] for x in fixtures), 'no fixture exercises the [UNK] branch'
+    assert any(x['truncated'] for x in fixtures), 'no fixture exercises truncation'
+    assert any(x['text'].strip('!?.- ') == '' for x in fixtures), 'no punctuation-only fixture'
     partials['sentences'] = fixtures
+    partials['unkExampleText'] = dev[unk_i][0]
+    print(f'tokenizer fixtures: 20 ({sum(1 for x in fixtures if x["truncated"])} truncated, '
+          f'1 [UNK] case = {dev[unk_i][0][:48]!r}…)')
 
     os.makedirs(OUT_DIR, exist_ok=True)
     model_path = os.path.join(OUT_DIR, 'bert-sst2-model.json')
