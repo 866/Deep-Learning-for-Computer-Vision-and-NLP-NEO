@@ -1,7 +1,7 @@
 # Design: BERT visualization in `attention-vis`
 
 Date: 2026-10-12
-Status: approved in conversation, awaiting written-spec review
+Status: approved (spec reviewed 2026-10-12); implemented by docs/superpowers/plans/2026-10-12-bert-visualization.md
 Scope: add BERT (Devlin et al., 2018, arXiv:1810.04805) as the third model family in the
 interactive 3D walkthrough, alongside the encoder-decoder Transformer and the ViT.
 
