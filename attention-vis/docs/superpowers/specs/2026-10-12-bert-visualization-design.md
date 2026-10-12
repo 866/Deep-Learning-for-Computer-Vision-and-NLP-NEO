@@ -37,16 +37,19 @@ Success means:
 ## 2. Measured evidence (this is why the design is shaped this way)
 
 All numbers below were measured on this machine before the design was approved
-(throwaway probe, `torch 2.14.1+cu130`, CUDA available, 145 s end to end):
+(probe first, then reproduced by `training/train_bert.py` — `torch 2.14.1+cu130`, CUDA, 142 s end to
+end. The values below are the **shipped** run's, read from `config.metrics` in the exported file):
 
 | quantity | measured | how |
 | --- | --- | --- |
 | parameters | **512,348** | L=2, H=128, A=2, dFF=512, T=32, V=600 |
-| sentiment, SST-2 dev | **74.4%** | 4 epochs after pre-training |
+| sentiment, SST-2 dev | **74.3%** (probe 74.4%) | 4 fine-tune epochs after pre-training, all 872 rows |
+| sentiment, sentences that fit whole | **83.2%** | the 267/872 rows under MAXP; the rest are seen truncated |
 | majority-class baseline | **50.9%** | label balance of the 872 dev rows |
-| MLM masked top-1 (all masks) | **38.2%** | 20 000 pre-train steps, dev, 3 mask seeds |
-| MLM masked top-1 (frequent whole words) | **30.9%** | n=5 216 masks on non-`##` tokens with corpus freq ≥ 100 |
-| NSP validation accuracy | **at chance** (loss 0.693 = ln 2) | same run |
+| MLM masked top-1 (all masks) | **37.8%** (probe 38.2%) | 20 000 pre-train steps, dev, 3 mask seeds |
+| MLM masked top-1 (frequent whole words) | **28.9%** (probe 30.9%) | n=5 216 masks on non-`##` tokens with corpus freq ≥ 100 |
+| NSP held-out accuracy | **50.0% — at chance** (loss 0.693 = ln 2) | 436 adjacent vs 436 random-partner pairs |
+| dev sentences truncated | **69.4%** (605/872) | median dev review is 39 WordPiece pieces, MAXP = T−3 = 29 |
 | WordPiece V=600, dev sentences with zero `[UNK]` | **99.7%** | 869/872 |
 | word-level (non-subword) vocab instead | 8–10 usable dev rows | rejected: no honest accuracy possible |
 
@@ -75,7 +78,7 @@ Data-source availability, verified by request: `https://dl.fbaipublicfiles.com/g
 | H (hidden size) | 128 | BERT-TINY |
 | A (heads) | 2 | BERT-TINY (H/64) |
 | dFF | 512 | = 4H, as the paper's footnote 3 |
-| T (sequence) | 32 | keeps 77% of SST-2 sentences whole; truncation rate is reported |
+| T (sequence) | 32 | **30.6%** of dev sentences fit whole (measured; the 77% an early estimate inferred from *word* counts was wrong — a median review is 39 *pieces*). Truncation is measured, printed, and the picker/examples are chosen from sentences that fit |
 | vocab | WordPiece, V=600 | paper §"Input/Output": WordPiece, 30 000 tokens → ours is 600 |
 | specials | `[PAD] [UNK] [CLS] [SEP] [MASK]` (ids 0–4) | |
 | norm placement | **post-LN** `Add & Norm` | as the paper's encoder (tensor2tensor), unlike ViT's pre-LN |
@@ -479,9 +482,9 @@ implementation time — default (a), fidelity:
 | JS/Python tokenizer drift | token ids asserted in `npm run validate` |
 | `isVitPhase` ordinal bug breaking the ViT chapters | converted to phase sets in this change; covered by the ViT regression check |
 | T=32 truncation distorting claims | truncation rate measured and shown; sentences in the picker chosen to fit |
-| 23 % of dev sentences truncated | accuracy reported on the full 872 with truncation, stated as such |
+| 69.4% of dev sentences truncated at T=32 (measured; an early estimate said 23%) | accuracy reported on the full 872 with truncation **and** on the 267 that fit whole (74.3% / 83.2%), stated as such in the chapter |
+| payload size (600-token vocab + 512k params) | measured: `bert-sst2-model.json` 2.62 MiB + `bert-sst2-partials.json` 0.63 MiB = **3.25 MiB** of JSON, disclosed in §8.4 with the H=64 fallback recorded |
 | figure licensing | attribution file + caption on every use; user-approved decision |
-| payload size (600-token vocab + 512k params) | measured ≈2.6 MiB JSON and disclosed in §8.4, with the H=64 fallback recorded; re-checked in §10 step 4 |
 | training needs CUDA to be quick | measured 249 steps/s GPU (~2 min) vs 10.8 steps/s CPU (~44 min); not on the viewing path (JSON committed); `--steps`/`--fast` documented |
 
 ---
