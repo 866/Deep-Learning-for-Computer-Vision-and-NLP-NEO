@@ -122,7 +122,9 @@ let bert = createBertModel(gl, bertWeights, 0);
 // The token ids come first and are not a tolerance check: if the browser's WordPiece produces even
 // one different id, every cube after it is labelled with the wrong word and no amount of numerical
 // agreement downstream is worth anything.
-setBertSentence(bert, partials.text as unknown as string);
+// the unmasked sentence: [] asks for no [MASK], which is what these partials were exported from
+// (omitting the argument instead would apply the demo's own mask rule and compare two different inputs)
+setBertSentence(bert, partials.text as unknown as string, []);
 {
     let wantIds = partials.ids.toFloat32Array();
     let wantSeg = partials.seg.toFloat32Array();

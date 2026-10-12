@@ -267,6 +267,7 @@ export interface IBertModelLink {
 
     examples: { text: string; label: number; ids: number[] }[];
     masked: number[];          // positions forced to [MASK] by the last setBertSentence call
+    maskedGold: number[];      // what each masked position actually was, so the demo can be scored
     text: string;
     truncated: boolean;        // the sentence had more pieces than T-3, so the tail is not there
 }
@@ -392,6 +393,7 @@ export function createBertModel(gl: WebGL2RenderingContext, weights: IBertWeight
         sentimentProbs: tex(1, 2),
         examples: [],
         masked: [],
+        maskedGold: [],
         text: '',
         truncated: false,
     };
@@ -415,6 +417,26 @@ export function createBertModel(gl: WebGL2RenderingContext, weights: IBertWeight
  * here?"), and runs the whole model. This is the only edit path: typing a sentence re-runs every
  * block, which is the point — the numbers on screen are that sentence's.
  */
+/**
+ * Where the demo puts its single [MASK] when the caller doesn't say: the middle piece of the
+ * sentence. That rule is deliberately not "the position this model happens to get right" \u2014 the
+ * chapter prints the aggregate accuracy beside the same prediction, so the slot has to be one a
+ * reader can predict and audit, not one tuned to flatter the weights.
+ */
+export function defaultMaskPos(ids: number[], v: IBertVocab, nUsed: number): number {
+    // never [CLS] (0), never a [SEP], never padding: the content in between, taken from the middle
+    let lo = 1;
+    let hi = nUsed - 2;
+    if (hi < lo) {
+        return -1;
+    }
+    let mid = Math.floor((lo + hi) / 2);
+    for (let p = mid; p >= lo; p--) {
+        if (ids[p] !== v.sep) return p;
+    }
+    return -1;
+}
+
 export function setBertSentence(model: IBertModelLink, text: string, maskPositions?: number[]) {
     let { T } = model.shape;
     let v = bertVocabFromConfig(model.config);
@@ -423,9 +445,17 @@ export function setBertSentence(model: IBertModelLink, text: string, maskPositio
 
     model.text = text;
     model.truncated = enc.truncated;
+    let nUsed = ids.findIndex(id => id === v.pad);
+    if (nUsed < 0) nUsed = T;
+    // omitting maskPositions means "mask the demo slot", not "mask nothing": the MLM chapters need a
+    // masked column to talk about, and saying which one it is costs one sentence of prose
+    let positions = maskPositions ?? [defaultMaskPos(ids, v, nUsed)];
+
     model.masked = [];
-    for (let p of maskPositions ?? []) {
+    model.maskedGold = [];
+    for (let p of positions) {
         if (p >= 0 && p < T && ids[p] !== v.pad) {
+            model.maskedGold.push(ids[p]);
             ids[p] = v.mask;
             model.masked.push(p);
         }

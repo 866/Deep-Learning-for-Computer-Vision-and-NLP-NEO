@@ -502,6 +502,36 @@ implementation time — default (a), fidelity:
    the new BERT-BASE/LARGE — including a toggle-on → off → on cycle to confirm buffers are freed.
 8. Visual smoke test via the existing `window.__canvasRender` DEV hook.
 
+### 10.1 Results (12 Oct 2026)
+
+Machine-measured (node / dev server, this laptop):
+
+| step | result | evidence |
+| --- | --- | --- |
+| 1 training | done, and re-run three times | shipped JSON carries 74.9% sentiment / 37.1% MLM-all / 28.9% MLM-frequent / 50.6% NSP; §2 records the run-to-run drift (74.31 / 74.43 / 74.89) rather than pretending the seed pins it |
+| 2 `npm run validate` | **OK**, all three families | worst diff 1.81e-5 (BERT `mlmLogits`), 1.67e-6 (ViT `lnf`), 9.54e-7 (Transformer `logits`); token ids and masked ids are exact matches |
+| 3 `npm run typecheck` | clean | — |
+| 4 `npm run build` | succeeds in ~1.6 s | payload measured: `bert-sst2-model.json` 2,742,444 B (2.62 MiB) + `bert-sst2-partials.json` 661,695 B (0.63 MiB) = 3.25 MiB, matching §8.4's estimate |
+| 8 (part) assets resolve in-app | all 200 with correct content-types | dev server: `/` 200; the four figures `image/svg+xml` at 386 KB / 228 KB / 212 KB / 659 KB; both JSONs `application/json` |
+| 5 (part) the chapters execute and speak | six chapters run headlessly; no `undefined`/`NaN` in any interpolated sentence | this is now a permanent `npm run check:bert` case (113 checks total): each chapter is called with a real model, real layout and real `phaseTools`, renderers and camera internals stubbed. It caught three content defects before commit (a recalled-not-read quote in ch. 3, a claim about a word the demo sentence doesn't contain in ch. 2, and a `51%` that read as a precise claim about a coin flip in ch. 5) |
+| §8 figures re-measured against the shipped code | layout **141** cubes / **0.32 ms** per generation; forward pass **15.15 ms** end to end; BERT-Base 2321 cubes / 11.6 ms and BERT-Large 5945 cubes / 15.2 ms one-off at startup | §8.1/§8.2 updated to these numbers (the plan-phase estimates were 129 / 0.5 ms and 10.6 ms) |
+
+**Not measured, and why:** steps 5 (visual), 6 (i)–(iv), 7 and the visual half of 8 need a real browser with a GPU
+context. This environment has no headless Chrome/Playwright (only a plain `firefox` binary, which cannot be driven
+for frame timing), and `triRender`/`lineRender`/the font atlas need a live `WebGL2RenderingContext` \u2014 the same reason
+step 5's drawing assertions could not be turned into a node test. They are left open deliberately rather than being
+reported as passes on a probe's authority. The checks to run, in order, with the DevTools console open:
+
+1. Walk the six BERT chapters (Shift+click in the TOC): figures paint, the strip's ids follow the sentence, the `[MASK]`
+   candidates change with the sentence, and the camera never clips the 600-row MLM block.
+2. Idle on any BERT phase: CPU in the Performance tab should sit at ~0 with no rAF running (the loop is dirty-flag driven);
+   frame time in a BERT chapter should be no worse than in a Transformer chapter, since BERT's layout has fewer cubes.
+3. Type a sentence one character at a time: exactly one hitch per commit, not one per keystroke (`§8.2`'s ~15 ms), and the
+   heap in the Memory tab flat across 50 commits.
+4. Toolbar: BERT-Base and BERT-Large on \u2192 off \u2192 on with no WebGL warnings, and the four paper-sized Transformer/ViT shapes
+   still toggle as before (the `FAMILIES` table replaced their dispatch ladders).
+5. `window.__canvasRender.progState` is exposed in dev for any of the above.
+
 ---
 
 ## 11. Risks and mitigations

@@ -5,7 +5,7 @@
 import fs from 'fs';
 import { TensorF32 } from '../src/utils/tensor';
 import {
-    bertSentiment, bertTopK, bertVocabFromConfig, createBertModel, IBertModelLink, setBertSentence,
+    bertSentiment, bertTopK, bertVocabFromConfig, createBertModel, defaultMaskPos, IBertModelLink, setBertSentence,
     uploadAllBert, wordpieceEncode,
 } from '../src/llm/BertModel';
 import { embedTable, genGptModelLayout, inputEmbedParts } from '../src/llm/GptModelLayout';
@@ -14,6 +14,11 @@ import { bertArrowPlan, drawBertArrows } from '../src/llm/components/Arrow';
 import { drawBertBlockLabels } from '../src/llm/components/SectionLabels';
 import { bertMlmChartRegion, drawBertModelCard } from '../src/llm/components/ModelCard';
 import { familyOfPhase, initWalkthrough, isBertPhase, isVitPhase, Phase, PhaseGroup } from '../src/llm/walkthrough/Walkthrough';
+import { phaseTools } from '../src/llm/walkthrough/WalkthroughTools';
+import { genGptModelLayout } from '../src/llm/GptModelLayout';
+import { configToShape } from '../src/llm/TransformerModel';
+import { Mat4f } from '../src/utils/matrix';
+import { walkthroughBert01_Intro, walkthroughBert02_Input, walkthroughBert03_Attn, walkthroughBert04_Mlm, walkthroughBert05_PretrainFT, walkthroughBert06_Sentiment } from '../src/llm/walkthrough/WalkthroughBert';
 import { configToShape } from '../src/llm/TransformerModel';
 
 // Paths are relative to the package root, matching scripts/validate-model.ts: npm runs
@@ -520,6 +525,103 @@ for (let text of ['', '   ', ' . , ; ']) {
     check('SentencePicker debounces rather than re-running on every keystroke',
         /setTimeout\(/.test(picker) && /onKeyDown[\s\S]{0,200}Enter/.test(picker),
         'no debounce timer or Enter handler found');
+}
+
+// ---- Task 10: the chapters actually run, and their prose has no holes ----
+// The commentary template literals are evaluated when a chapter runs, so executing one headlessly
+// catches an interpolation that resolves to undefined or NaN \u2014 the failure that shows up in the browser
+// as "gets undefined% of masks right" and nothing else. Renderers/camera internals are stubbed; what
+// is real is the model, the layout, the tools, and the words.
+{
+    let bertLayout = genBertModelLayout(bert.shape, bert);
+    let gptData = loadJson('public/transformer-reverse-model.json');
+    let gptLayout = genGptModelLayout(configToShape(gptData.config) as any);
+    setBertSentence(bert, 'this film was a great deal of fun', [4]);
+
+    let chapters: [Phase, string, any][] = [
+        [Phase.Bert_Intro, 'Bert_Intro', walkthroughBert01_Intro],
+        [Phase.Bert_Input, 'Bert_Input', walkthroughBert02_Input],
+        [Phase.Bert_Attn, 'Bert_Attn', walkthroughBert03_Attn],
+        [Phase.Bert_Mlm, 'Bert_Mlm', walkthroughBert04_Mlm],
+        [Phase.Bert_PretrainFT, 'Bert_PretrainFT', walkthroughBert05_PretrainFT],
+        [Phase.Bert_Sentiment, 'Bert_Sentiment', walkthroughBert06_Sentiment],
+    ];
+
+    for (let [phase, name, fn] of chapters) {
+        let wt: any = {
+            phase, time: 1e6, prevTime: 0, prevPhase: Phase.None, phaseList: [], times: [], phaseLength: 0,
+            cameraInitial: null, running: false, speed: 1, viewDt: 16, dimHighlightBlocks: null,
+            phaseTransitiveData: null, commentaryParas: [], phaseData: new Map(),
+        };
+        let render: any = new Proxy(
+            { modelFontBuf: {}, triRender: { vbo: { localBufs: [{ usedEls: 0 }] } }, lineRender: { floatBuf: { localBufs: [{ usedEls: 0 }] } }, size: { x: 1280, y: 800 } },
+            { get: (t, k) => k in t ? (t as any)[k] : (() => 0) });
+        let state: any = {
+            render, mainLayout: bertLayout, layout: gptLayout, walkthrough: wt,
+            camera: { modelMtx: new Mat4f(), viewMtx: new Mat4f(), projMtx: new Mat4f(), mtx: new Mat4f(), desiredCamera: null, angle: { x: 270, y: 10, z: 1 }, center: { x: 0, y: 0, z: 0 }, lerpTime: 1, target: [0, 0] },
+            bert: { shape: bert.shape, model: bert, layout: bertLayout, pendingSentence: null },
+            display: { lines: [], tokenColors: null, tokenIdxColors: null, hoverTarget: null, dimHover: null, blkIdxHover: null },
+            markDirty: () => {},
+        };
+        let threw = '';
+        try {
+            fn({ state, layout: bertLayout, walkthrough: wt, tools: phaseTools(state) });
+        } catch (e) {
+            threw = (e as Error).message;
+        }
+        check(`${name} runs without throwing`, threw === '', threw);
+
+        let paras = (wt.times as any[]).filter(t => t && t.strings);
+        check(`${name} produces commentary`, paras.length >= 2, `${paras.length} paragraphs`);
+
+        let holes: string[] = [];
+        let chars = 0;
+        for (let p of paras) {
+            for (let v of p.values) {
+                if (typeof v === 'number' && !Number.isFinite(v)) holes.push('NaN/Infinity');
+                if (typeof v === 'string' && /undefined|NaN|\[object Object\]/.test(v)) holes.push(JSON.stringify(v.slice(0, 40)));
+                if (v && typeof v === 'object' && typeof v.str === 'string' && /undefined|NaN/.test(v.str)) holes.push(JSON.stringify(v.str.slice(0, 40)));
+                chars += typeof v === 'string' ? v.length : 1;
+            }
+            chars += [...p.strings].join('').length;
+        }
+        check(`${name}'s interpolated text has no undefined / NaN`, holes.length === 0, holes.join(', '));
+        if (name === 'Bert_Intro') {
+            console.log(`       chapters speak ${(wt.times as any[]).filter(t => t && t.strings).length} paragraphs; full run covers ${chapters.length} chapters`);
+        }
+    }
+}
+
+// ---- Task 10: the demo's [MASK] comes from a rule the reader can predict ----
+// The MLM chapters show candidates for "the [MASK] in the current sentence", which is only an honest
+// statement if a mask is actually there and its position is not chosen to flatter the weights.
+{
+    let text = 'this film was a great deal of fun';
+    let v = bertVocabFromConfig(model.config);
+    let plain = wordpieceEncode(v, text, T);
+
+    setBertSentence(bert, text);                                   // no position given: the rule applies
+    check('a sentence with no explicit mask still gets exactly one [MASK]', bert.masked.length === 1,
+        `masked=${JSON.stringify(bert.masked)}`);
+    let pos = bert.masked[0];
+    check('the mask never lands on [CLS] or a pad', pos >= 1 && bert.inputBuf[pos] === v.mask, `pos ${pos}`);
+    check('the gold token is recorded before it is hidden', bert.maskedGold.length === 1 && bert.maskedGold[0] === plain.ids[pos],
+        `gold ${bert.maskedGold[0]} vs encoder ${plain.ids[pos]}`);
+    check('masking hides exactly one column and changes nothing else',
+        bert.inputBuf.filter(id => id === v.mask).length === 1);
+
+    // an explicit empty list is the escape hatch (the chapters must not silently mask when told not to)
+    setBertSentence(bert, text, []);
+    check('an explicit empty mask list means no mask', bert.masked.length === 0 && bert.maskedGold.length === 0);
+
+    // defaultMaskPos must survive the degenerate sentences without pointing outside the content
+    let edges = [[v.cls, v.unk, v.sep], [v.cls, v.sep], [v.cls], [v.cls, v.unk, v.unk, v.sep]];
+    let badPos = edges.filter(ids => {
+        let p = defaultMaskPos(ids, v, ids.length);
+        return p === 0 || p >= ids.length || (p >= 0 && ids[p] === v.sep);
+    });
+    check('defaultMaskPos never picks [CLS], a [SEP] or an out-of-range column', badPos.length === 0,
+        badPos.map(ids => JSON.stringify(ids)).join(' '));
 }
 
 summary();

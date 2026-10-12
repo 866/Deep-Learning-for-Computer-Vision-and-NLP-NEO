@@ -1,16 +1,13 @@
 import React, { useState } from "react";
-import { Dim, Vec3 } from "@/src/utils/vector";
+import { Vec3 } from "@/src/utils/vector";
 import { Phase } from "./Walkthrough";
-import { cameraFor, commentary, DimStyle, dimStyleColor, embed, IBertWalkthroughArgs, moveCameraToFor, setInitialCamera, setInitialCameraFor } from "./WalkthroughTools";
-import { numberToCommaSep, processUpTo, revealBlockAlongX, revealSequence, startProcessBefore } from "./Walkthrough00_Intro";
+import { commentary, DimStyle, dimStyleColor, embed, IBertWalkthroughArgs, moveCameraToFor, setInitialCamera, setInitialCameraFor } from "./WalkthroughTools";
+import { numberToCommaSep, processUpTo, revealBlockAlongX, revealSequence } from "./Walkthrough00_Intro";
 import { embedInline, embedLink } from "./Walkthrough01_Prelim";
 import { useProgramState } from "../Sidebar";
-import { splitGrid } from "../Annotations";
-import { bertSentiment, bertTopK, bertVocabFromConfig, IBertModelLink, wordpieceEncode } from "../BertModel";
+import { bertSentiment, bertTopK, bertVocabFromConfig, wordpieceEncode } from "../BertModel";
 import { IBlkDef } from "../GptModelLayout";
-import { makeArrayRange } from "@/src/utils/data";
 import { lerp } from "@/src/utils/math";
-import { bertMlmChartRegion } from "../components/ModelCard";
 
 /*
 The BERT chapters, after "BERT: Pre-training of Deep Bidirectional Transformers for Language
@@ -144,8 +141,8 @@ Three embeddings are *summed*, not concatenated. The token embedding says **whic
     breakAfter();
 
     commentary(wt)`Here is what the model is actually holding for the sentence on screen, produced by the same WordPiece routine the
-training script used. Pieces after the first in a word carry the ${c_str('##')} prefix, so "arming" arrives as three rows \u2014 which is
-exactly what ${c_blockRef('this column', layout.residual0)} is.
+training script used. A piece that continues a word carries the ${c_str('##')} prefix, so one written word can occupy several columns \u2014
+and each column below is exactly one ${c_blockRef('column of the embedding block', layout.residual0)}.
 
 ${embed(InputStrip)}`;
     breakAfter();
@@ -181,13 +178,11 @@ export function walkthroughBert03_Attn(args: IBertWalkthroughArgs) {
     let attnCubes = block.attn.heads.flatMap(h => [h.qBlock, h.kBlock, h.vBlock, h.attnMtx, h.attnMtxSm, h.vOutBlock]);
     setInitialCameraFor(state, [block.ln1.lnResid, ...attnCubes, block.attn.attnResidual], new Vec3(280, 6, 0), 1.15);
 
-    let c0 = commentary(wt)`This is the one architectural thing BERT changed, and the paper is blunt about it: BERT is deeply bidirectional,
-OpenAI GPT is deeply unidirectional from left to right, and ELMo is only shallowly bidirectional.
+    let c0 = commentary(wt)`This is the one architectural thing BERT changed, and \u00a71 explains why it had to: ${c_str('"standard language models are unidirectional, and this limits the choice of architectures that can be used during pre-training"')}. A model that reads only left-to-right can be trained by predicting its own next token — which is the cheapest source of training data there is, namely text itself.
 
 ${embed(Fig3Comparison)}
 
-${c_str('BERT uses a bidirectional Transformer. OpenAI GPT uses a left-to-right Transformer. ELMo uses the concatenation of independently trained left-to-right and right-to-left LSTMs.')} \u2014 Figure 1's caption. The arrows in those pictures are attention arrows,
-and this is what they look like from the inside.`;
+Those arrows are attention arrows. ${c_str('"BERT uses a bidirectional Transformer. OpenAI GPT uses a left-to-right Transformer. ELMo uses the concatenation of independently trained left-to-right and right-to-left LSTMs"')} \u2014 that is Figure 1's own caption. And ELMo, the paper notes, is ${c_str('"not deeply bidirectional"')}: its two directions are trained separately and only glued together afterwards. Below is what BERT's choice looks like from the inside, one head of one layer.`;
 
     if (c0.t > 0) {
         hideIntermediates(layout.cubes);
@@ -280,7 +275,8 @@ The split is ours, not the paper's, and it is the expected shape of the result: 
 \u2014 ${c_str('the')}, ${c_str('and')}, ${c_str('a')} \u2014 recoverable from grammar alone, while content words need a world model that two layers
 and one sentiment dataset cannot supply.
 
-Top candidates for the ${c_str('[MASK]')} in the current sentence (position 0 is ${c_str('[CLS]')}):
+The ${c_str('[MASK]')} below sits at the middle piece of the current sentence \u2014 a fixed rule, chosen so you can predict
+where it lands, not tuned to wherever this model does best. Its candidates, straight out of ${c_blockRef('mlmProbs', layout.mlmProbs)}:
 
 ${embed(MaskPredictionsAtMask)}
 
@@ -318,7 +314,7 @@ plus a tanh first. That pooler is ${c_str('this block')}, and it is the only pla
     processUpTo(state, t_nsp, layout.nspProbs);
     breakAfter();
 
-    commentary(wt)`And here is what this checkpoint says: ${(m ? (m.nsp_dev_acc * 100).toFixed(0) : '50')}%.
+    commentary(wt)`And here is what this checkpoint says: ${(m ? (m.nsp_dev_acc * 100).toFixed(1) : '50.0')}%.
 ${m && Math.abs(m.nsp_dev_acc - 0.5) < 0.06
         ? 'Which is coin-flipping. This demo feeds it a sentence and nothing, on a single-sentence task, with two layers and a 600-piece vocabulary \u2014 so the head learned nothing, sits at chance, and the honest thing is to show you that rather than hide it.'
         : 'Reported from the checkpoint rather than retyped.'}
@@ -462,14 +458,23 @@ export const MaskPredictionsAtMask: React.FC = () => {
     if (!model) {
         return null;
     }
-    let pos = model.masked[0] ?? 1;
+    let pos = model.masked[0];
+    let gold = model.maskedGold[0];
     let top = bertTopK(model, pos, 5);
-    if (top.length === 0) {
-        return <div className="text-sm text-gray-500 my-2">No masked position in the current sentence.</div>;
+    if (top.length === 0 || pos === undefined) {
+        return <div className="text-sm text-gray-500 my-2">Nothing masked in the current sentence.</div>;
     }
     let max = top[0].p || 1;
+    let hit = gold !== undefined && top[0].tok === model.vocab[gold];
     return <table className="my-2 mx-auto text-sm border-collapse">
         <tbody>
+            {gold !== undefined && <tr>
+                <td className="pr-2 text-right text-gray-500 text-xs">the piece that was hidden</td>
+                <td colSpan={2} className="pl-1 text-xs">
+                    <span className="font-mono">{model.vocab[gold]}</span>{' '}
+                    <span className={hit ? 'text-green-700' : 'text-red-700'}>{hit ? '\u2014 this model got it right' : '\u2014 this model did not'}</span>
+                </td>
+            </tr>}
             {top.map((c, i) => <tr key={i}>
                 <td className="pr-2 font-mono text-right w-24">{c.tok}</td>
                 <td className="w-48"><div className="h-3 rounded-sm" style={{ width: `${Math.max(2, c.p / max * 100)}%`, background: i === 0 ? '#2f9e44' : '#7c3c8d99' }} /></td>
