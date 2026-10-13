@@ -8,3 +8,14 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Downloaded datasets and trained model checkpoints (too large for git)
+notebooks/data/
+notebooks/saved_models/
+data/cifar-10-batches-py/
+data/cifar-10-python.tar.gz
+data/NSL-KDD/
+data/SST-2/
+*.pt
+*.safetensors
+*.tar.gz
