@@ -218,46 +218,49 @@ export function drawVitBlockLabels(state: IRenderState, layout: IVitModelLayout)
 export function drawBertBlockLabels(state: IRenderState, layout: IBertModelLayout) {
     let margin = layout.margin;
     let { baseColor, outerEdge, vertLabel, attnLabels, lnLabel, ffnLabel } = labelDrawer(state, margin);
-    let stack = { dir: layout.dir };
+    // the stack and the MLM head have their side computations on the left; the [CLS] heads and the
+    // segment / position tables are on the right
+    let left = { dir: -1 };
+    let right = { dir: 1 };
+
+    let allBlockCubes = layout.blocks.flatMap(b => b.cubes);
+    let outer = outerEdge(left, allBlockCubes);
+    let sublayerX = outer - margin * 3;
+    let layerX = outer - margin * 10;
+    let stackX = outer - margin * 17;
 
     {
         let color = baseColor.mul(layout.embedLabel.visible);
-        let x = outerEdge(stack, [layout.segEmbed]) - margin * 2;
-        vertLabel(stack, 'Token + Segment + Position', x, [layout.tokEmbed], 8, color, 4);
+        let x = outerEdge(left, [layout.tokEmbed]) - margin * 2;
+        vertLabel(left, 'Token Embedding', x, [layout.tokEmbed], 6, color, 4);
+        let rx = outerEdge(right, [layout.posEmbed]) + margin * 2;
+        vertLabel(right, 'Segment + Position Embedding', rx, [layout.posEmbed], 6, color, 4);
     }
+    lnLabel(left, layout.embedLN, 'Layer Norm');
 
-    lnLabel(stack, layout.embedLN, 'Norm');
-
-    // one "BERT Encoder" label per column of layers (the tiny model fits in a single column)
-    let columns = new Map<number, IBlkDef[]>();
-    for (let block of layout.blocks) {
-        columns.set(block.x0, [...(columns.get(block.x0) ?? []), ...block.cubes]);
-    }
-    let first = true;
-    for (let cubes of columns.values()) {
-        let x = outerEdge(stack, cubes) - margin * 17;
-        vertLabel(stack, first ? 'BERT Encoder' : 'BERT Encoder (cont.)', x, cubes, 40, baseColor.mul(0.7), 20);
-        first = false;
-    }
+    vertLabel(left, 'Encoder', stackX, allBlockCubes, 40, baseColor.mul(0.7), 20);
 
     for (let block of layout.blocks) {
-        let outer = outerEdge(stack, block.cubes);
         let color = baseColor.mul(block.output.opacity * block.blockLabel.visible);
-        vertLabel(stack, `Layer ${block.idx + 1}`, outer - margin * 10, block.cubes, 22, color);
-        lnLabel(stack, block.ln1, 'Norm');
-        attnLabels(stack, block.attn, 'Bidirectional Self-Attention', outer - margin * 3);
-        lnLabel(stack, block.ln2, 'Norm');
-        ffnLabel(stack, block.ffn, outer - margin * 3, 'FFN');
+        vertLabel(left, `Encoder Layer ${block.idx + 1}`, layerX, block.cubes, 22, color);
+        attnLabels(left, block.attn, 'Bidirectional Self-Attention', sublayerX);
+        lnLabel(left, block.ln1);
+        ffnLabel(left, block.ffn, sublayerX);
+        lnLabel(left, block.ln2);
     }
 
     {
         let color = baseColor.mul(layout.mlmLabel.visible);
-        let x = outerEdge(stack, [layout.mlmOutBias]) - margin;
-        vertLabel(stack, 'MLM Head', x, [layout.mlmFcWeight, layout.mlmProbs], 14, color, 8);
+        let cubes = layout.mlmLabel.cubes;
+        let x = outerEdge(left, [layout.mlmFcBias, layout.mlmOutBias]) - margin * 3;
+        vertLabel(left, 'Masked LM Head', x, cubes, 22, color);
+        lnLabel(left, layout.mlmLn, 'Layer Norm');
     }
+
     {
         let color = baseColor.mul(layout.outputLabel.visible);
-        let x = outerEdge(stack, [layout.poolBias]) - margin;
-        vertLabel(stack, '[CLS] Heads', x, [layout.poolWeight, layout.sentimentProbs], 14, color, 8);
+        let x = outerEdge(right, [layout.poolBias, layout.nspBias, layout.sentimentBias]) + margin * 2;
+        vertLabel(right, 'Pooler + NSP Head', x, [layout.poolWeight, layout.nspProbs], 12, color);
+        vertLabel(right, 'Sentiment Classifier', x, [layout.sentimentWeight, layout.sentimentProbs], 12, color);
     }
 }

@@ -214,9 +214,9 @@ export function stackBounds(layout: IAnyModelLayout) {
     }
     if (layout.kind === 'bert') {
         // same reason as the ViT's 1000-class head: the MLM output is n_vocab tall (30 522 rows for
-        // BERT-Base), so framing it would push the encoder stack off screen
+        // BERT-Base), so framing it (or the softmax rows under it) would push the encoder stack off screen
         let vocabExtent = layout.shape.vocabSize * layout.cell * 0.5;
-        return blocksBounds(layout.cubes.filter(c => Math.max(c.dx, c.dy) < vocabExtent));
+        return blocksBounds(layout.cubes.filter(c => Math.max(c.dx, c.dy) < vocabExtent && c.y < layout.mlmLogits.y));
     }
     let vocabExtent = layout.shape.vocabSize * layout.cell * 0.5;
     let cubes = layout.shape.vocabSize < 1000 ? layout.cubes : layout.cubes.filter(c => Math.max(c.dx, c.dy) < vocabExtent && c.y < layout.logits.y);

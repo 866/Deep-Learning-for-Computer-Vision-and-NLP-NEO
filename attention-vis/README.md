@@ -30,24 +30,24 @@ A third part covers BERT from
 ["BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding"](https://arxiv.org/abs/1810.04805)
 (Devlin, Chang, Lee & Toutanova, 2018). Its chapters show a tiny BERT (L = 2, H = 128, A = 2 heads, FFN size 512,
 600-piece WordPiece vocabulary, 512,348 parameters, sequence length T = 32) that was pre-trained with the paper's own
-two objectives \u2014 a masked language model and next-sentence prediction \u2014 and then fine-tuned on SST-2 movie reviews,
+two objectives — a masked language model and next-sentence prediction — and then fine-tuned on SST-2 movie reviews,
 the paper's Figure 4b setup. It reaches **74.9% on the 872 dev sentences it never saw**, against a 50.9% majority
 baseline (80.9% on the 267 dev sentences that fit inside T = 32 without truncation).
 
-Like the paper's model it has summed token + segment + position embeddings, learned position embeddings, pre-norm
-encoder layers with biased, GELU feed-forward blocks, a masked-LM head whose output layer is the token embedding table
-transposed, a tanh pooler feeding the NSP head, and a K $\u00d7$ H classifier reading the raw [CLS] vector (\u00a74.1). Bidirectional
+Like the paper's model it has summed token + segment + position embeddings (followed by a layer norm), learned position
+embeddings, post-norm ("Add & Norm") encoder layers, as in the original Transformer, with biased projections and GELU feed-forward blocks, a masked-LM head whose output layer is the token embedding table
+transposed, a tanh pooler feeding the NSP head, and a K × H classifier reading the raw [CLS] vector (§4.1). Bidirectional
 attention is the real thing: no causal mask is ever set.
 
 The numbers are reported as measured, including the ones that are not flattering. The masked-token objective gets 37.1%
 of masks right overall and 28.9% when the masked piece is a frequent whole word; next-sentence prediction sits at 50.6%,
 i.e. chance, because a single-sentence task gives the head nothing to learn from (the paper's own Table 3 found NSP worth
 0.1 of a point, and RoBERTa later dropped it); and 69.4% of SST-2 dev sentences are longer than T = 32, so they reach the
-model truncated \u2014 which is why the untruncated accuracy is quoted next to the headline number. Every figure on screen, and
+model truncated — which is why the untruncated accuracy is quoted next to the headline number. Every figure on screen, and
 every number the chapters speak, is read out of the checkpoint's own `config.metrics` rather than typed into the prose;
 `npm run check:bert` fails if a chapter hard-codes an accuracy that is not in that file or not a cited table from the paper.
 
-BERT-Base and BERT-Large (\u00a73) can be turned on in the toolbar like the other paper-sized models, for structure only \u2014
+BERT-Base and BERT-Large (§3) can be turned on in the toolbar like the other paper-sized models, for structure only —
 they carry no weights, and the tiny BERT is the one that runs.
 
 ## Running
@@ -68,8 +68,8 @@ Requires Node 18+.
 
 `train_bert.py` pre-trains (MLM + NSP) and then fine-tunes the sentiment classifier in one run. It is measured at 249
 steps/s on a GPU (~2 min) and 10.8 steps/s on CPU (~44 min); it prefers CUDA when there is one, and falls back to CPU
-without argument. Retraining moves the reported accuracies \u2014 seeds fix initialisation and data order, not GPU reduction
-order \u2014 so the committed `public/bert-sst2-model.json` is what the viewer and the chapters report, and `npm run validate`
+without argument. Retraining moves the reported accuracies — seeds fix initialisation and data order, not GPU reduction
+order — so the committed `public/bert-sst2-model.json` is what the viewer and the chapters report, and `npm run validate`
 re-checks the JS forward pass against whatever weights are present.
 
 Training is not on the viewing path: the viewer loads the committed JSON.
@@ -89,6 +89,6 @@ licence).
 - `src/llm/GptModelLayout.ts`: the shared layout builder (layer norm, attention, FFN), and the 3D layout of the encoder (left) and decoder (right)
 - `src/llm/VitModel.ts`, `src/llm/VitModelLayout.ts`: the ViT's JS forward pass and 3D layout
 - `src/llm/BertModel.ts`: BERT's JS forward pass, its WordPiece tokenizer, and the MLM / NSP / sentiment heads
-- `src/llm/BertModelLayout.ts`: BERT's 3D layout (141 cubes \u2014 fewer than the ViT's 146 or the Transformer's 313)
+- `src/llm/BertModelLayout.ts`: BERT's 3D layout (141 cubes — fewer than the ViT's 146 or the Transformer's 313)
 - `src/llm/walkthrough/`: the chapters of the guide (`WalkthroughVit.tsx` for the ViT, `WalkthroughBert.tsx` for BERT)
 - `src/llm/components/TocDiagram.tsx`: the Figure 1-style table of contents

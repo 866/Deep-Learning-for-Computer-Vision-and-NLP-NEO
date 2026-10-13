@@ -286,70 +286,102 @@ export interface IBertArrow {
     kind: 'embed' | 'mlm' | 'cls';
     from: IBlkDef;
     to: IBlkDef;
-    mode: 'vert' | 'inward' | 'left' | 'split';
+    // vert: down the column; inward: a weight into the block beside it; side: from a table on the right
+    // of the column into it; split: out of the column to a block beside it; bus: out of the column and
+    // down a vertical lane to a block further down; front: like side, but passing in front of the
+    // segment table that sits between the position table and the column
+    mode: 'vert' | 'inward' | 'side' | 'split' | 'bus' | 'front';
+    dir: number; // which side of the column the side computation is on (-1: left, +1: right)
 }
 
 export function bertArrowPlan(layout: IBertModelLayout): IBertArrow[] {
-    let last = layout.blocks[layout.blocks.length - 1]?.output ?? layout.residual0;
+    let last = layout.output;
+    let L = -1, R = 1;
     let plan: IBertArrow[] = [
         // Figure 2: the token id picks a row of the token table, the segment id a row of the segment
-        // table, the position picks its own row, and all three land in one sum.
-        { kind: 'embed', from: layout.tokens, to: layout.residual0, mode: 'vert' },
-        { kind: 'embed', from: layout.segIds, to: layout.segEmbed, mode: 'left' },
-        { kind: 'embed', from: layout.tokEmbed, to: layout.residual0, mode: 'inward' },
-        { kind: 'embed', from: layout.segEmbed, to: layout.residual0, mode: 'inward' },
-        { kind: 'embed', from: layout.posEmbed, to: layout.residual0, mode: 'left' },
-        { kind: 'embed', from: layout.residual0, to: layout.embedLN.lnResid, mode: 'split' },
+        // table, the position picks its own row, and all three land in one sum
+        { kind: 'embed', from: layout.tokens, to: layout.segIds, mode: 'vert', dir: L },
+        { kind: 'embed', from: layout.segIds, to: layout.residual0, mode: 'vert', dir: L },
+        { kind: 'embed', from: layout.tokEmbed, to: layout.residual0, mode: 'inward', dir: L },
+        { kind: 'embed', from: layout.segEmbed, to: layout.residual0, mode: 'side', dir: L },
+        { kind: 'embed', from: layout.posEmbed, to: layout.residual0, mode: 'front', dir: L },
 
         // the MLM head runs over every position: dense \u2192 GELU \u2192 LayerNorm \u2192 E\u1D40 \u2192 softmax
-        { kind: 'mlm', from: layout.mlmFcBias, to: layout.mlmFcWeight, mode: 'vert' },
-        { kind: 'mlm', from: layout.mlmFcWeight, to: layout.mlmDense, mode: 'vert' },
-        { kind: 'mlm', from: layout.mlmDense, to: layout.mlmAct, mode: 'vert' },
-        { kind: 'mlm', from: layout.mlmOutBias, to: layout.mlmOutWeight, mode: 'vert' },
-        { kind: 'mlm', from: layout.mlmOutWeight, to: layout.mlmLogits, mode: 'inward' },
-        { kind: 'mlm', from: layout.mlmLogits, to: layout.mlmAgg2, mode: 'vert' },
-        { kind: 'mlm', from: layout.mlmAgg1, to: layout.mlmProbs, mode: 'vert' },
+        { kind: 'mlm', from: last, to: layout.mlmDense, mode: 'vert', dir: L },
+        { kind: 'mlm', from: layout.mlmFcBias, to: layout.mlmFcWeight, mode: 'inward', dir: L },
+        { kind: 'mlm', from: layout.mlmFcWeight, to: layout.mlmDense, mode: 'inward', dir: L },
+        { kind: 'mlm', from: layout.mlmDense, to: layout.mlmAct, mode: 'vert', dir: L },
+        { kind: 'mlm', from: layout.mlmLn.lnResid, to: layout.mlmLogits, mode: 'vert', dir: L },
+        { kind: 'mlm', from: layout.mlmOutBias, to: layout.mlmOutWeight, mode: 'inward', dir: L },
+        { kind: 'mlm', from: layout.mlmOutWeight, to: layout.mlmLogits, mode: 'inward', dir: L },
+        { kind: 'mlm', from: layout.mlmLogits, to: layout.mlmAgg2, mode: 'vert', dir: L },
+        { kind: 'mlm', from: layout.mlmAgg1, to: layout.mlmProbs, mode: 'vert', dir: L },
 
         // BERT's own pooler feeds NSP; the task classifier reads the raw [CLS] (\u00a74.1), so both
-        // arrows start at the same column of the last block
-        { kind: 'cls', from: last, to: layout.poolOut, mode: 'vert' },
-        { kind: 'cls', from: layout.poolBias, to: layout.poolWeight, mode: 'vert' },
-        { kind: 'cls', from: layout.poolWeight, to: layout.poolOut, mode: 'inward' },
-        { kind: 'cls', from: layout.poolOut, to: layout.nspLogits, mode: 'vert' },
-        { kind: 'cls', from: layout.nspBias, to: layout.nspWeight, mode: 'vert' },
-        { kind: 'cls', from: layout.nspWeight, to: layout.nspLogits, mode: 'inward' },
-        { kind: 'cls', from: layout.nspLogits, to: layout.nspAgg2, mode: 'vert' },
-        { kind: 'cls', from: layout.nspAgg1, to: layout.nspProbs, mode: 'vert' },
-        { kind: 'cls', from: last, to: layout.sentimentLogits, mode: 'vert' },
-        { kind: 'cls', from: layout.sentimentBias, to: layout.sentimentWeight, mode: 'vert' },
-        { kind: 'cls', from: layout.sentimentWeight, to: layout.sentimentLogits, mode: 'inward' },
-        { kind: 'cls', from: layout.sentimentLogits, to: layout.sentimentAgg2, mode: 'vert' },
-        { kind: 'cls', from: layout.sentimentAgg1, to: layout.sentimentProbs, mode: 'vert' },
+        // arrows start at the last layer's output
+        { kind: 'cls', from: last, to: layout.poolOut, mode: 'split', dir: R },
+        { kind: 'cls', from: layout.poolBias, to: layout.poolWeight, mode: 'inward', dir: R },
+        { kind: 'cls', from: layout.poolWeight, to: layout.poolOut, mode: 'inward', dir: R },
+        { kind: 'cls', from: layout.poolOut, to: layout.nspLogits, mode: 'vert', dir: R },
+        { kind: 'cls', from: layout.nspBias, to: layout.nspWeight, mode: 'inward', dir: R },
+        { kind: 'cls', from: layout.nspWeight, to: layout.nspLogits, mode: 'inward', dir: R },
+        { kind: 'cls', from: layout.nspLogits, to: layout.nspAgg2, mode: 'vert', dir: R },
+        { kind: 'cls', from: layout.nspAgg1, to: layout.nspProbs, mode: 'vert', dir: R },
+        { kind: 'cls', from: last, to: layout.sentimentLogits, mode: 'bus', dir: R },
+        { kind: 'cls', from: layout.sentimentBias, to: layout.sentimentWeight, mode: 'inward', dir: R },
+        { kind: 'cls', from: layout.sentimentWeight, to: layout.sentimentLogits, mode: 'inward', dir: R },
+        { kind: 'cls', from: layout.sentimentLogits, to: layout.sentimentAgg2, mode: 'vert', dir: R },
+        { kind: 'cls', from: layout.sentimentAgg1, to: layout.sentimentProbs, mode: 'vert', dir: R },
     ];
     return plan;
 }
 
 export function drawBertArrows(state: IRenderState, layout: IBertModelLayout) {
-    let { setDir, drawAttention, drawLn, drawFfn, drawVertArrow, drawInward, drawSplitTo, drawArrowBetween } = arrowDrawer(state, layout);
+    let { pad, residWidth, dataColor, weightColor, setDir, drawAttention, drawLn, drawFfn, drawVertArrow, drawInward, drawSplitTo, drawArrowBetween } = arrowDrawer(state, layout);
     setDir(layout.dir);
 
+    // post-LN, so the same order as the Transformer's encoder
     drawLn(layout.embedLN);
-
     for (let block of layout.blocks) {
-        drawLn(block.ln1);
         drawAttention(block.attn);
-        drawLn(block.ln2);
+        drawLn(block.ln1);
         drawFfn(block.ffn);
+        drawLn(block.ln2);
     }
-
     drawLn(layout.mlmLn);
 
     for (let arrow of bertArrowPlan(layout)) {
+        setDir(arrow.dir);
+        let { from, to } = arrow;
         switch (arrow.mode) {
-            case 'vert': drawVertArrow(arrow.from, arrow.to); break;
-            case 'inward': drawInward(arrow.from, arrow.to); break;
-            case 'left': drawArrowBetween(arrow.from, BlockPos.Left, arrow.to, BlockPos.Right); break;
-            case 'split': drawSplitTo(arrow.from, arrow.to); break;
+            case 'vert': drawVertArrow(from, to); break;
+            case 'inward': drawInward(from, to); break;
+            case 'side': drawArrowBetween(from, BlockPos.Left, to, BlockPos.Right); break;
+            case 'split': drawSplitTo(from, to); break;
+            case 'front': {
+                // lower than the segment arrow, and in front of the segment table it crosses
+                let opacity = Math.min(from.opacity, to.opacity);
+                if (opacity > 0) {
+                    let y = to.y + to.dy * 0.75;
+                    let z = Math.max(from.z + from.dz, layout.segEmbed.z + layout.segEmbed.dz) + 0.5;
+                    drawPolyArrow(state, [new Vec3(from.x - pad, y, z), new Vec3(to.x + to.dx + pad, y, z)], residWidth, weightColor.mul(opacity));
+                }
+                break;
+            }
+            case 'bus': {
+                // leave the column below the pooler's split, run down the lane between the column and the
+                // head blocks, and turn into the target from its inner side
+                let opacity = Math.min(from.opacity, to.opacity);
+                if (opacity > 0) {
+                    let z = from.z + from.dz / 2;
+                    let startX = from.x + from.dx + pad;
+                    let laneX = (startX + to.x) / 2;
+                    let y0 = from.y + from.dy * 0.8;
+                    let y1 = to.y + to.dy / 2;
+                    drawPolyArrow(state, [new Vec3(startX, y0, z), new Vec3(laneX, y0, z), new Vec3(laneX, y1, z), new Vec3(to.x - pad, y1, z)], residWidth, dataColor.mul(opacity));
+                }
+                break;
+            }
         }
     }
 }

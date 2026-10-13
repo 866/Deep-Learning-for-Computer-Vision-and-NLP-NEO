@@ -88,6 +88,11 @@ export const CanvasEventSurface: React.FC<{
     });
 
     function handleMouseDown(ev: React.MouseEvent) {
+        // A drag on the canvas must never start a text selection: once the header, toolbar or sidebar
+        // text is selected, the next drag becomes a native drag-and-drop of that selection and the
+        // camera stops receiving mouse moves. So suppress the default and drop any stale selection.
+        ev.preventDefault();
+        window.getSelection()?.removeAllRanges();
         if (progState) {
             setDragStart(ev, { camAngle: progState.camera.angle, camTarget: progState.camera.center });
         }

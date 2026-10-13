@@ -387,6 +387,21 @@ for (let text of ['', '   ', ' . , ; ']) {
     check('the token row reads model.tokens', layout.tokens.access?.src === bert.tokens);
     check('the embed LN block reads the embedding norm output', layout.embedLN.lnResid.access?.src === bert.embedLN.output);
     check('block 1 reads its own attention output', layout.blocks[1].attn.attnOut.access?.src === bert.blocks[1].selfAttn?.proj.output);
+
+    // BERT is post-LN (as the forward pass is): the embedding norm feeds layer 1, each layer's attention
+    // reads the previous layer's *normed* output, and the heads read the last ln2, not a raw residual
+    check('the layout is post-LN, like the forward pass', layout.blocks.every(b => !b.ln1.preNorm && !b.ln2.preNorm) && !layout.embedLN.preNorm);
+    check('layer 1 attends over the normed embedding', layout.blocks[0].attn.xq === layout.embedLN.lnResid);
+    check('layer 2 attends over layer 1\'s output', layout.blocks[1].attn.xq === layout.blocks[0].ln2.lnResid);
+    check('the stack output is the last ln2', layout.output === layout.blocks[layout.blocks.length - 1].ln2.lnResid
+        && layout.output.access?.src === bert.blocks[bert.blocks.length - 1].ln2.output);
+    // a dot-product dependency on an activation must take (column x, channel i); 'yi' would read the
+    // output channel as a column index and highlight the wrong cells on hover
+    let activationDots = layout.cubes.filter(c => c.deps?.dot).map(c => [c, c.deps!.dot![1]] as const).filter(([, d]) => d.src.t === 'i');
+    let wrongDots = activationDots.filter(([c, d]) => c.transpose ? false : d.srcIdxMtx.g(0, 1) !== 0);
+    check('every matmul reads its activation as (column, channel)', wrongDots.length === 0, wrongDots.map(([c]) => c.name).join(', '));
+    check('the parameter count matches the checkpoint', layout.weightCount === bert.config.n_params,
+        `${layout.weightCount} vs ${bert.config.n_params}`);
 }
 
 // ---- Task 7: the BERT-specific arrows are a plan, so they can be checked without a GPU ----
@@ -410,11 +425,14 @@ for (let text of ['', '   ', ' . , ; ']) {
     // them is exactly the bug worth catching
     let last = layout.blocks[layout.blocks.length - 1].output;
     let expect: [string, any, any, string][] = [
-        ['embed', layout.tokens, layout.residual0, 'token ids select the rows of the embedding sum'],
+        ['embed', layout.tokens, layout.segIds, 'token ids flow down the column to the segment ids'],
+        ['embed', layout.segIds, layout.residual0, 'the id rows select the rows of the embedding sum'],
         ['embed', layout.tokEmbed, layout.residual0, 'token table feeds z0'],
         ['embed', layout.segEmbed, layout.residual0, 'segment table feeds z0'],
         ['embed', layout.posEmbed, layout.residual0, 'position table feeds z0'],
+        ['mlm', last, layout.mlmDense, 'the MLM head reads the last layer'],
         ['mlm', layout.mlmDense, layout.mlmAct, 'dense -> GELU'],
+        ['mlm', layout.mlmLn.lnResid, layout.mlmLogits, 'the normed transform feeds the tied output layer'],
         ['mlm', layout.mlmOutWeight, layout.mlmLogits, 'tied E^T -> logits'],
         ['cls', last, layout.poolOut, 'the pooler reads [CLS] from the last block'],
         ['cls', layout.poolOut, layout.nspLogits, 'the pooler feeds NSP'],

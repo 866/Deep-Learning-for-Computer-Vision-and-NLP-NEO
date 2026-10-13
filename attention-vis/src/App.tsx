@@ -5,7 +5,7 @@ import s from './app.module.scss';
 
 export const App: React.FC = () => {
     return <div className={s.body}>
-        <div className="flex justify-between items-center px-2 py-1 bg-blue-950 text-white h-[2.0rem] flex-shrink-0">
+        <div className="flex justify-between items-center px-2 py-1 bg-blue-950 text-white h-[2.0rem] flex-shrink-0 select-none">
             <div className="flex items-center"><InfoButton /></div>
             <div className="text-xl">Transformer Visualization</div>
             <div className="flex gap-4 text-sm">

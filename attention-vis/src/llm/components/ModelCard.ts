@@ -1,5 +1,5 @@
 import { cameraToMatrixView } from "../Camera";
-import { cellPosition, IGptModelLayout, IModelLayout, IStackLayout } from "../GptModelLayout";
+import { cellPosition, IBlkDef, IGptModelLayout, IModelLayout, IStackLayout } from "../GptModelLayout";
 import { IBertModelLayout } from "../BertModelLayout";
 import { bertTopK } from "../BertModel";
 import { IVitModelLayout } from "../VitModelLayout";
@@ -61,9 +61,18 @@ function drawCardFrame(state: IProgramState, title: string, weightCount: number,
 
     let lineOpts: ILineOpts = { color: borderColor, mtx, thick, n };
 
-    let tl = new Vec3(-52, -97, 0);
-    // the frame grows downward to fit any extra lines, so the Transformer / ViT cards keep their exact geometry
-    let br = new Vec3( 52, -66 - (extra?.length ?? 0) * 5, 0);
+    let cardW = 104;
+    let shapeFontScale = 4 * 0.8;
+    let lineStep = 5;
+    // the shape line is wrapped at its ",  " separators so it never runs past the frame (the ViT's
+    // "L = 2, D = 48, ... 10 classes" is wider than the card)
+    let shapeLines = wrapParts(render, shapeText.split(',  '), ',  ', cardW - 8, shapeFontScale);
+    let extraLines = (extra?.length ?? 0) + shapeLines.length - 1;
+    // the frame grows upward to fit any extra lines, so its bottom edge stays where it is, clear of the
+    // input drawn above the model; 2 units of bottom padding keep the last line off the border
+    let extraGap = extra?.length ? 1.5 : 0; // a little air between the shape line and the metrics
+    let tl = new Vec3(-cardW / 2, -99 - extraLines * lineStep - extraGap, 0);
+    let br = new Vec3( cardW / 2, -66, 0);
     drawLineRect(render, tl, br, lineOpts);
 
     addQuad(render.triRender, new Vec3(tl.x, tl.y, -0.1), new Vec3(br.x, br.y, -0.1), backgroundColor, mtx);
@@ -98,16 +107,25 @@ function drawCardFrame(state: IProgramState, title: string, weightCount: number,
     writeTextToBuffer(render.modelFontBuf, nParamsText, titleColor, weightX, paramOff - paramFontScale / 2, paramFontScale, mtx);
     writeTextToBuffer(render.modelFontBuf, weightCountText, titleColor, weightX + weightTitleW, paramOff - weightSize / 2, weightSize, mtx);
 
-    let shapeW = measureTextWidth(render.modelFontBuf, shapeText, paramFontScale * 0.8);
-    writeTextToBuffer(render.modelFontBuf, shapeText, titleColor.mul(0.7), midX - shapeW / 2, paramOff + weightSize * 0.75, paramFontScale * 0.8, mtx);
+    let shapeY = paramOff + weightSize * 0.75;
+    for (let line of shapeLines) {
+        let shapeW = measureTextWidth(render.modelFontBuf, line, shapeFontScale);
+        writeTextToBuffer(render.modelFontBuf, line, titleColor.mul(0.7), midX - shapeW / 2, shapeY, shapeFontScale, mtx);
+        shapeY += lineStep;
+    }
 
     // measured numbers from the checkpoint's own metrics block \u2014 the card is where a reader meets
     // "74.9% against a 50.9% majority baseline", so it has to be the shipped figures, not rounded claims
-    let extraY = paramOff + weightSize * 0.75 + 3;
+    let extraY = shapeY - lineStep + 3 + extraGap;
     for (let line of extra ?? []) {
-        let w = measureTextWidth(render.modelFontBuf, line, 3.2);
-        writeTextToBuffer(render.modelFontBuf, line, titleColor.mul(0.85), midX - w / 2, extraY, 3.2, mtx);
-        extraY += 5;
+        let size = 3.2;
+        let w = measureTextWidth(render.modelFontBuf, line, size);
+        if (w > cardW - 8) {
+            size *= (cardW - 8) / w;
+            w = cardW - 8;
+        }
+        writeTextToBuffer(render.modelFontBuf, line, titleColor.mul(0.85), midX - w / 2, extraY, size, mtx);
+        extraY += lineStep;
     }
     // addParam("C (channels) = ", C.toString(), dimStyleColor(DimStyle.C));
     // addParam("T (time) = ", T.toString(), dimStyleColor(DimStyle.T));
@@ -129,6 +147,25 @@ function drawCardFrame(state: IProgramState, title: string, weightCount: number,
     // }
 
     // addLine(render.lineRender, thick, borderColor, new Vec3(tl.x, tl.y + paramHeight), new Vec3(br.x, tl.y + paramHeight), n, mtx);
+}
+
+/** Greedily join `parts` with `sep` into lines no wider than `maxW` at font size `size`. */
+function wrapParts(render: IRenderState, parts: string[], sep: string, maxW: number, size: number) {
+    let lines: string[] = [];
+    let curr = '';
+    for (let part of parts) {
+        let next = curr ? curr + sep + part : part;
+        if (curr && measureTextWidth(render.modelFontBuf, next, size) > maxW) {
+            lines.push(curr);
+            curr = part;
+        } else {
+            curr = next;
+        }
+    }
+    if (curr) {
+        lines.push(curr);
+    }
+    return lines;
 }
 
 let _widthCache = new WeakMap<IModelLayout, number>();
@@ -533,47 +570,106 @@ function renderOutputAtBottom(state: IProgramState) {
 
 /**
  * The BERT card: same frame as the Transformer / ViT cards, plus the measured accuracy figures
- * (they belong where the reader first sees the model) and, for the main layout, the token strip,
- * the [MASK] candidates and the sentiment verdict.
+ * (they belong where the reader first sees the model) and, for the main layout, the input pieces
+ * above the model, the per-position MLM predictions under it and the sentiment verdict beside its head.
  */
 export function drawBertModelCard(state: IProgramState, layout: IBertModelLayout, title: string, offset: Vec3, isMain: boolean) {
     let { nBlocks, C, nHeads, dFF, vocabSize, T } = layout.shape;
     let model = layout.model;
-    let shapeText = `L = ${nBlocks},  H = ${C},  A = ${nHeads},  dFF = ${dFF},  V = ${vocabSize},  T = ${T}`;
+    let shapeText = `L = ${nBlocks},  H = ${C},  A = ${nHeads},  d_ff = ${dFF},  n_vocab = ${vocabSize},  T = ${T}`;
 
     let extra: string[] = [];
     let m = model?.config.metrics;
     if (m) {
-        extra.push(`SST-2 dev accuracy ${(m.sentiment_dev_acc * 100).toFixed(1)}%  \u00b7  majority baseline ${(m.majority_baseline * 100).toFixed(1)}%`);
-        extra.push(`masked-token top-1 ${(m.mlm_top1_all * 100).toFixed(1)}%  \u00b7  NSP ${(m.nsp_dev_acc * 100).toFixed(1)}% (${(m.nsp_dev_acc * 100).toFixed(0)}% = chance)`);
-        if (model?.truncated) {
-            extra.push(`this sentence is cut off: only its first ${T - 3} pieces are in the input`);
-        }
+        let pct = (v: number) => `${(v * 100).toFixed(1)}%`;
+        extra.push(`SST-2 dev accuracy ${pct(m.sentiment_dev_acc)}  (majority baseline ${pct(m.majority_baseline)})`);
+        extra.push(`masked-token top-1 ${pct(m.mlm_top1_all)}  \u00b7  next-sentence ${pct(m.nsp_dev_acc)} (chance level)`);
     }
 
     drawCardFrame(state, title, layout.weightCount, shapeText, offset, layout, extra);
 
     if (isMain && model) {
-        renderBertTokenStrip(state, layout);
-        renderBertMlmCandidates(state, layout);
+        renderBertInputAtTop(state, layout);
+        renderBertMlmOutput(state, layout);
         renderBertSentiment(state, layout);
     }
 }
 
-/** The WordPiece strings above the token-id row, so `##ing` reads as the literal it is (Figure 2). */
-function renderBertTokenStrip(state: IProgramState, layout: IBertModelLayout) {
-    let model = layout.model!;
-    let blk = layout.tokens;
-    let cellW = layout.cell;
-    let rowH = 8;
-    let mtx = new Mat4f();
-    let lineOpts: ILineOpts = makeLineOpts({ color: Vec4.fromHexColor("#000000", 0.4), mtx, thick: 1.2 });
+const bertBoxW = 7;
+const bertBoxH = 10;
 
-    let tl = new Vec3(blk.x, blk.y - layout.margin * 1.5 - rowH, 0);
-    let br = new Vec3(blk.x + layout.shape.T * layout.cell, tl.y + rowH, 0);
-    // renderInputBoxes is the Transformer strip\u2019s renderer; it only needs a vocab to look ids up in
-    renderInputBoxes(state, { shape: { T: layout.shape.T }, model: { vocab: model.vocab } } as unknown as IGptModelLayout,
-        model.inputBuf, layout.shape.T, tl, br, cellW, 2.6, lineOpts);
+/** Draw `text` centred in a box `w` wide, shrinking it until it fits. */
+function drawFittedText(state: IProgramState, text: string, cx: number, y: number, w: number, opts: IFontOpts) {
+    let size = opts.size;
+    let width = measureText(state.render.modelFontBuf, text, { ...opts, size });
+    if (width > w) {
+        size *= w / width;
+        width = w;
+    }
+    drawText(state.render.modelFontBuf, text, cx - width / 2, y + (opts.size - size) / 2, { ...opts, size });
+}
+
+/** A row of T boxes, wired to the T columns of `blk`: above it (inputs) or below it (outputs). */
+function bertTokenRow(state: IProgramState, layout: IBertModelLayout, blk: IBlkDef, above: boolean, lineOpts: ILineOpts) {
+    let { T } = layout.shape;
+    let midX = blk.x + blk.dx / 2;
+    let rowW = bertBoxW * T;
+    let y0 = above ? blk.y - layout.margin - bertBoxH : blk.y + blk.dy + layout.margin;
+    let tl = new Vec3(midX - rowW / 2, y0);
+    let br = new Vec3(midX + rowW / 2, y0 + bertBoxH);
+    drawLineRect(state.render, tl, br, lineOpts);
+    for (let i = 1; i < T; i++) {
+        let x = tl.x + i * bertBoxW;
+        drawLine(state.render.lineRender, new Vec3(x, tl.y), new Vec3(x, br.y), lineOpts);
+    }
+    // the same three-segment wire the Transformer's strips use, with the arrow at the receiving end
+    for (let i = 0; i < T; i++) {
+        let bx = cellPosition(layout, blk, Dim.X, i) + 0.5 * layout.cell;
+        let tx = tl.x + (i + 0.5) * bertBoxW;
+        let blkY = above ? blk.y - 0.5 * layout.cell : blk.y + blk.dy + 0.5 * layout.cell;
+        let rowY = above ? br.y + layout.cell * 0.5 : tl.y - layout.cell * 0.5;
+        let mid1 = lerp(blkY, rowY, 1 / 6);
+        let mid2 = lerp(blkY, rowY, 3 / 4);
+        drawLine(state.render.lineRender, new Vec3(bx, blkY), new Vec3(bx, mid1), lineOpts);
+        drawLine(state.render.lineRender, new Vec3(bx, mid1), new Vec3(tx, mid2), lineOpts);
+        drawLine(state.render.lineRender, new Vec3(tx, mid2), new Vec3(tx, rowY), lineOpts);
+        // data flows down either way, so the arrowhead points down at whichever end receives
+        let [ax, ay] = above ? [bx, blkY] : [tx, rowY];
+        let arrLen = 0.6;
+        drawLine(state.render.lineRender, new Vec3(ax - arrLen, ay - arrLen), new Vec3(ax, ay), lineOpts);
+        drawLine(state.render.lineRender, new Vec3(ax + arrLen, ay - arrLen), new Vec3(ax, ay), lineOpts);
+    }
+    return { tl, br };
+}
+
+/** The WordPiece pieces and their ids above the token-id row, wired to their columns (Figure 2). */
+function renderBertInputAtTop(state: IProgramState, layout: IBertModelLayout) {
+    let model = layout.model!;
+    let render = state.render;
+    let mtx = new Mat4f();
+    let lineOpts = makeLineOpts({ color: Vec4.fromHexColor("#000000", 0.2), mtx, thick: 1.5 });
+    let { tl } = bertTokenRow(state, layout, layout.tokens, true, lineOpts);
+
+    let pieceOpts: IFontOpts = { color: Vec4.fromHexColor("#000000", 1.0), mtx, size: 2.2 };
+    let idOpts: IFontOpts = { color: Vec4.fromHexColor("#666666", 1.0), mtx, size: 1.5 };
+    let masked = new Set(model.masked);
+    let maskColor = dimStyleColor(DimStyle.n_vocab);
+    for (let i = 0; i < layout.shape.T; i++) {
+        let id = model.inputBuf[i];
+        let piece = model.vocab[id] ?? '?';
+        let isPad = piece === '[PAD]';
+        let mix = mixColorValues(state.display.tokenIdxColors, pieceOpts.color, i);
+        let color = isPad ? mix.mul(0.3) : masked.has(i) ? maskColor : mix;
+        let cx = tl.x + (i + 0.5) * bertBoxW;
+        let top = tl.y + (bertBoxH - pieceOpts.size - idOpts.size) / 2;
+        drawFittedText(state, piece, cx, top, bertBoxW - 0.8, { ...pieceOpts, color });
+        drawFittedText(state, id.toString(), cx, top + pieceOpts.size, bertBoxW - 0.8, { ...idOpts, color: isPad ? idOpts.color.mul(0.3) : idOpts.color });
+    }
+
+    let titleOpts: IFontOpts = { color: Vec4.fromHexColor("#666666", 1.0), mtx, size: 1.9 };
+    let title = `Input: WordPiece tokens, [CLS] \u2026 [SEP] padded to T = ${layout.shape.T}, all in segment A`
+        + (model.truncated ? ` (this sentence is cut off after ${layout.shape.T - 3} pieces)` : '');
+    drawText(render.modelFontBuf, title, tl.x, tl.y - lineHeight(titleOpts), titleOpts);
 }
 
 /** Where the [MASK] candidate chart sits, so the walkthrough can frame the camera on it. */
@@ -581,64 +677,116 @@ export function bertMlmChartRegion(layout: IBertModelLayout) {
     let blk = layout.mlmProbs;
     let rowH = 4.5;
     let rows = 5;
-    return { x: blk.x + blk.dx + layout.margin * 1.6, y: blk.y + blk.dy / 2 - (rows * rowH) / 2 - 6, dx: 90, dy: rows * rowH + 12, rowH };
+    let rowW = bertBoxW * layout.shape.T;
+    let x = blk.x + blk.dx / 2 - rowW / 2;
+    let y = blk.y + blk.dy + layout.margin + bertBoxH + 8;
+    return { x, y, dx: 90, dy: rows * rowH + 10, rowH };
 }
 
-/** Top candidates for the first masked position, straight out of mlmProbs. */
-function renderBertMlmCandidates(state: IProgramState, layout: IBertModelLayout) {
+/**
+ * Under the MLM probabilities: the most likely piece at every position (the way the Transformer shows
+ * its output), and for the [MASK] position its top candidates, straight out of mlmProbs.
+ */
+function renderBertMlmOutput(state: IProgramState, layout: IBertModelLayout) {
     let model = layout.model!;
     let render = state.render;
+    let blk = layout.mlmProbs;
+    let opacity = blk.opacity;
+    let probs = model.mlmProbs.localBuffer;
+    if (!probs || opacity === 0) {
+        return;
+    }
+    let { T, vocabSize } = layout.shape;
+    let mtx = new Mat4f();
+    let lineOpts = makeLineOpts({ color: Vec4.fromHexColor("#000000", 0.2 * opacity), mtx, thick: 1.5 });
+    let { tl, br } = bertTokenRow(state, layout, blk, false, lineOpts);
+
+    let pieceOpts: IFontOpts = { color: Vec4.fromHexColor("#000000", opacity), mtx, size: 2.2 };
+    let pctOpts: IFontOpts = { color: Vec4.fromHexColor("#666666", opacity), mtx, size: 1.5 };
     let pos = model.masked[0];
+    let gold = model.maskedGold[0];
+    for (let i = 0; i < T; i++) {
+        if (model.padBuf[i]) {
+            continue;
+        }
+        let best = 0;
+        for (let v = 1; v < vocabSize; v++) {
+            if (probs[i * vocabSize + v] > probs[i * vocabSize + best]) best = v;
+        }
+        let p = probs[i * vocabSize + best];
+        let color = pieceOpts.color.mul(i === pos ? 1.0 : 0.35);
+        if (i === pos) {
+            color = Vec4.fromHexColor(best === gold ? '#2f9e44' : '#c92a2a', opacity);
+        }
+        let cx = tl.x + (i + 0.5) * bertBoxW;
+        let top = tl.y + (bertBoxH - pieceOpts.size - pctOpts.size) / 2;
+        drawFittedText(state, model.vocab[best], cx, top, bertBoxW - 0.8, { ...pieceOpts, color });
+        drawFittedText(state, `${(p * 100).toFixed(0)}%`, cx, top + pieceOpts.size, bertBoxW - 0.8, pctOpts);
+    }
+    let titleOpts: IFontOpts = { color: Vec4.fromHexColor("#666666", opacity), mtx, size: 1.9 };
+    drawText(render.modelFontBuf, 'Most likely piece at each position (the [MASK] position is in colour)', tl.x, br.y + 1, titleOpts);
+
     if (pos === undefined) {
         return;
     }
     let top = bertTopK(model, pos, 5);
-    if (top.length === 0) {
-        return;
-    }
-    let mtx = new Mat4f();
-    let opacity = layout.mlmProbs.opacity;
     let region = bertMlmChartRegion(layout);
-    let textOpts: IFontOpts = { color: Vec4.fromHexColor("#000000", opacity), mtx, size: 3.2 };
-
-    drawText(render.modelFontBuf, `top candidates for position ${pos} (a [MASK])`, region.x, region.y, { ...textOpts, size: 2.8 });
-    let barMax = 40;
+    let textOpts: IFontOpts = { color: Vec4.fromHexColor("#000000", opacity), mtx, size: 3.4 };
+    let hidden = gold !== undefined ? `, hidden piece: ${model.vocab[gold]}` : '';
+    drawText(render.modelFontBuf, `Top candidates for the [MASK] at position ${pos}${hidden}`, region.x, region.y, { ...textOpts, size: 2.6 });
+    let barMax = 50;
+    let labelW = 16;
     top.forEach((cand, i) => {
-        let y = region.y + 5 + i * region.rowH;
+        let y = region.y + 4 + i * region.rowH;
         drawText(render.modelFontBuf, cand.tok, region.x, y + 0.4, textOpts);
         let w = Math.max(0.2, cand.p * barMax);
-        let color = i === 0 ? Vec4.fromHexColor("#2f9e44", opacity) : Vec4.fromHexColor("#7c3c8d", 0.55 * opacity);
-        addQuad(render.triRender, new Vec3(region.x + 22, y + 0.5, 0), new Vec3(region.x + 22 + w, y + region.rowH - 0.8, 0), color);
-        drawText(render.modelFontBuf, `${(cand.p * 100).toFixed(cand.p > 0.1 ? 0 : 1)}%`, region.x + 23 + w, y + 0.8, { ...textOpts, size: 2.5 });
+        let color = i === 0 ? Vec4.fromHexColor('#2f9e44', opacity) : Vec4.fromHexColor('#7c3c8d', 0.6 * opacity);
+        let x0 = region.x + labelW;
+        addQuad(render.triRender, new Vec3(x0, y + 0.5, 0), new Vec3(x0 + w, y + region.rowH - 0.5, 0), color);
+        drawText(render.modelFontBuf, `${(cand.p * 100).toFixed(cand.p > 0.1 ? 0 : 1)}%`, x0 + w + 1, y + 0.8, { ...textOpts, size: 2.6 });
     });
 }
 
-/** The sentiment verdict beside the two-cell output block. */
+/** Where the sentiment chart sits (under the sentiment probabilities), for framing the camera. */
+export function bertSentimentChartRegion(layout: IBertModelLayout) {
+    let blk = layout.sentimentProbs;
+    let rowH = 4.5;
+    return { x: blk.x, y: blk.y + blk.dy + layout.margin, dx: 80, dy: 2 * rowH + 8, rowH };
+}
+
+/** The sentiment verdict under the two-cell output block, drawn like the ViT's class chart. */
 function renderBertSentiment(state: IProgramState, layout: IBertModelLayout) {
     let model = layout.model!;
     let probs = model.sentimentProbs.localBuffer;
-    if (!probs) {
+    let blk = layout.sentimentProbs;
+    let opacity = blk.opacity;
+    if (!probs || opacity === 0) {
         return;
     }
     let render = state.render;
-    let blk = layout.sentimentProbs;
     let mtx = new Mat4f();
-    let opacity = blk.opacity;
     let classes = model.config.classes ?? ['negative', 'positive'];
-    let left = blk.x + blk.dx + layout.margin * 1.6;
-    let top = blk.y;
-    let rowH = 4.5;
-    let barMax = 45;
-    let textOpts: IFontOpts = { color: Vec4.fromHexColor("#000000", opacity), mtx, size: 3.2 };
+    let region = bertSentimentChartRegion(layout);
+    let left = region.x;
+    let top = region.y;
+    let rowH = region.rowH;
+    let barMax = 50;
+    let labelW = 16;
+    let textOpts: IFontOpts = { color: Vec4.fromHexColor("#000000", opacity), mtx, size: 3.4 };
+
+    let lineOpts = makeLineOpts({ color: Vec4.fromHexColor("#000000", 0.25 * opacity), mtx, thick: 1.5 });
+    let midX = blk.x + blk.dx / 2;
+    drawLine(render.lineRender, new Vec3(midX, blk.y + blk.dy + 1), new Vec3(midX, top - 1), lineOpts);
 
     let best = probs[1] >= probs[0] ? 1 : 0;
     for (let i = 0; i < 2; i++) {
         let y = top + i * rowH;
         drawText(render.modelFontBuf, classes[i] ?? String(i), left, y + 0.4, textOpts);
         let w = Math.max(0.2, probs[i] * barMax);
-        let color = i === best ? Vec4.fromHexColor("#2f9e44", opacity) : Vec4.fromHexColor("#7c3c8d", 0.55 * opacity);
-        addQuad(render.triRender, new Vec3(left + 16, y + 0.5, 0), new Vec3(left + 16 + w, y + rowH - 0.8, 0), color);
-        drawText(render.modelFontBuf, `${(probs[i] * 100).toFixed(1)}%`, left + 17 + w, y + 0.8, { ...textOpts, size: 2.5 });
+        let color = i === best ? Vec4.fromHexColor('#2f9e44', opacity) : Vec4.fromHexColor('#7c3c8d', 0.6 * opacity);
+        let x0 = left + labelW;
+        addQuad(render.triRender, new Vec3(x0, y + 0.5, 0), new Vec3(x0 + w, y + rowH - 0.5, 0), color);
+        drawText(render.modelFontBuf, `${(probs[i] * 100).toFixed(1)}%`, x0 + w + 1, y + 0.8, { ...textOpts, size: 2.6 });
     }
-    drawText(render.modelFontBuf, `prediction: ${classes[best] ?? best}`, left, top + 2 * rowH + 1, { ...textOpts, size: 3.6 });
+    drawText(render.modelFontBuf, `Prediction: ${classes[best] ?? best}, ${(probs[best] * 100).toFixed(1)}%`, left, top + 2 * rowH + 1.5, { ...textOpts, size: 4.2 });
 }

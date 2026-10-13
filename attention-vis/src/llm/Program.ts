@@ -188,9 +188,12 @@ export function initProgramState(canvasEl: HTMLCanvasElement, fontAtlasData: IFo
     let vitBB = layoutBounds(vitLayout);
     let bertLayout = genBertModelLayout(bertShape);
     let bertBB = layoutBounds(bertLayout);
+    // the camera frames the encoder and its heads, not the two n_vocab-tall MLM blocks under them,
+    // which would shrink the rest of the model to a sliver
+    let bertCamBB = stackBounds(bertLayout);
     let startFamily = familyOfPhase(walkthrough.phase);
     if (!prevState) {
-        let initCam = cameraForBounds(startFamily === 'vit' ? vitBB : startFamily === 'bert' ? bertBB : mainBB);
+        let initCam = cameraForBounds(startFamily === 'vit' ? vitBB : startFamily === 'bert' ? bertCamBB : mainBB);
         camera.angle = initCam.angle;
         camera.center = initCam.center;
     }
@@ -278,7 +281,7 @@ export function initProgramState(canvasEl: HTMLCanvasElement, fontAtlasData: IFo
             offset: new Vec3(),
             modelCardOffset: new Vec3(),
             blockRender: null!,
-            camera: cameraForBounds(bertBB, new Vec3()),
+            camera: cameraForBounds(bertCamBB, new Vec3()),
         },
         examples,
         model: null,

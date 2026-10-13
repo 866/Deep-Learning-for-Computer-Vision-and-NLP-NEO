@@ -387,7 +387,7 @@ function drawMaths(args: IDataFlowArgs, bottomMiddle: Vec3, textBlk: ITextBlock,
         );
         if (isNotNil(value)) {
             textBlk.subs!.push(
-                mkTextBlock({ text: value.toFixed(2), opts: textBlk.opts, size: new Vec3(35, 0), align: TextAlignHoriz.Right }),
+                mkTextBlock({ text: isMaskedScore(value) ? '\u2212\u221e' : value.toFixed(2), opts: textBlk.opts, size: new Vec3(35, 0), align: TextAlignHoriz.Right }),
             );
         }
     }
@@ -643,9 +643,23 @@ function drawSoftmax(args: IDataFlowArgs) {
     return drawMaths(args, center, textBlock);
 }
 
+/**
+ * A padding-masked attention score. BERT's forward pass stores the -1e9 that PyTorch's masked_fill
+ * writes (so validate can diff the buffer exactly); on screen it is "minus infinity", not a number.
+ */
+export function isMaskedScore(value: number) {
+    return value <= -1e8;
+}
+
 export function drawAttention(args: IDataFlowArgs) {
     let { center, mtx, blk } = args;
     let fontOpts = { color: opColor, mtx, size: 16 };
+
+    let value = getBlockValueAtIdx(blk, args.destIdx);
+    if (isNotNil(value) && isMaskedScore(value)) {
+        // a [PAD] key: excluded from the softmax, so no dot product is taken
+        return drawMaths(args, center, mkTextBlock({ opts: fontOpts, subs: [{ text: 'masked ([PAD] key)' }] }));
+    }
 
     let dotA = blk.deps!.dot![0];
     let dotB = blk.deps!.dot![1];

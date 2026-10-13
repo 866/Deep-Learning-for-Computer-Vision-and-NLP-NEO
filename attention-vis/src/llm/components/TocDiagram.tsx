@@ -8,6 +8,7 @@ import clsx from 'clsx';
 import { jumpToPhase } from '../Commentary';
 import { useProgramState } from '../Sidebar';
 import { Subscriptions } from '@/src/utils/hooks';
+import { bertTopK } from '../BertModel';
 
 interface IEntryGroup {
     groupName: string;
@@ -151,11 +152,11 @@ export const TocDiagram: React.FC<{
 
     entryGroups.push({ groupName: 'BERT', entries: [] });
     makeEntry(Phase.Bert_Intro, 'BERT Overview', []);
-    makeEntry(Phase.Bert_Input, 'Tokens, Segments & Positions', ['bertEmb', 'bertSum'], true);
+    makeEntry(Phase.Bert_Input, 'Tokens, Segments & Positions', ['bertEmb', 'bertEmbLn'], true);
     makeEntry(Phase.Bert_Attn, 'Bidirectional Attention', ['bertBlock', 'bertMha']);
-    makeEntry(Phase.Bert_Mlm, 'Masked Language Model', ['bertMlm']);
-    makeEntry(Phase.Bert_PretrainFT, 'Pre-training & Fine-tuning', ['bertMlm', 'bertCls']);
-    makeEntry(Phase.Bert_Sentiment, 'Sentiment Classifier', ['bertCls']);
+    makeEntry(Phase.Bert_Mlm, 'Masked Language Model', ['bertMlm', 'bertMlmSm'], true);
+    makeEntry(Phase.Bert_PretrainFT, 'Pre-training & Fine-tuning', ['bertMlm', 'bertMlmSm', 'bertCls', 'bertClsSm'], true);
+    makeEntry(Phase.Bert_Sentiment, 'Sentiment Classifier', ['bertCls', 'bertClsSm'], true);
 
     entryGroups.push({ groupName: 'Vision Transformer', entries: [] });
     makeEntry(Phase.Vit_Intro, 'ViT Overview', []);
@@ -164,42 +165,80 @@ export const TocDiagram: React.FC<{
     makeEntry(Phase.Vit_Head, 'Classification Head', ['vitHead']);
     makeEntry(Phase.Vit_Attention, 'Attention Maps & Scale', ['vitMha']);
 
+    // BERT's Figure 1, drawn like the Transformer's encoder above (BERT keeps its post-norm "Add & Norm"
+    // layers): input pieces -> summed embeddings -> layer norm -> L layers -> the MLM head and the
+    // [CLS] head side by side, which is how the paper's figure splits pre-training from fine-tuning.
     function buildBertDiagram() {
         let x = 150;
-        let emb = cell('bertEmb', ['Token + Segment', '+ Position Embedding'], x, 20, 26, colors.tokEmbed, 200);
-        let sum = cell('bertSum', 'Embedding (z\u2080)', x, emb.y + emb.h + 12, 18, colors.tokEmbed, 140);
-        let blockTop = sum.y + sum.h + 18;
-        let ln1 = cell('bertLn1', 'Norm', x, blockTop + 18, 18, colors.ln);
-        let mha = cell('bertMha', ['Bidirectional', 'Self-Attention'], x, ln1.y + ln1.h + 14, 32, colors.multihead);
-        let plus1Y = mha.y + mha.h + 14;
-        let ln2 = cell('bertLn2', 'Norm', x, plus1Y + 16, 18, colors.ln);
-        let ffn = cell('bertFfn', 'FFN', x, ln2.y + ln2.h + 12, 20, colors.feedForward);
-        let plus2Y = ffn.y + ffn.h + 12;
-        let blockBot = plus2Y + 6 + blockPad;
-        blocks.bertBlock = new BoundingBox3d(new Vec3(x - cellW / 2 - blockPad, blockTop), new Vec3(x + cellW / 2 + blockPad, blockBot));
+        let model = progState.bert.model;
+        let emb = cell('bertEmb', ['Token + Segment + Position', 'Embedding'], x, embedY, 26, colors.tokEmbed, 170);
+        let embLn = cell('bertEmbLn', 'Layer Norm', x, emb.y + emb.h + 14, 18, colors.ln);
+        let top = embLn.y + embLn.h + 14;
+        let mha = cell('bertMha', ['Bidirectional', 'Self-Attention'], x, top + 22, 34, colors.multihead);
+        let ln1 = cell('bertLn1', 'Add & Norm', x, top + 64, 20, colors.ln);
+        let ffn = cell('bertFfn', ['Feed', 'Forward'], x, top + 102, 34, colors.feedForward);
+        let ln2 = cell('bertLn2', 'Add & Norm', x, top + 144, 20, colors.ln);
+        let blockBot = ln2.y + ln2.h + blockPad;
+        blocks.bertBlock = new BoundingBox3d(new Vec3(x - cellW / 2 - blockPad, top), new Vec3(x + cellW / 2 + blockPad, blockBot));
 
-        let mlm = cell('bertMlm', ['MLM Head', '(E\u1D40 tied to the token table)'], x, blockBot + 22, 28, colors.softmax, 210);
-        let cls = cell('bertCls', ['[CLS] \u2192 pool \u2192 NSP', 'and sentiment classifier'], x, mlm.y + mlm.h + 16, 28, colors.linear, 210);
-        let bertHeight = cls.y + cls.h + 34;
+        let headW = 112;
+        let mlmX = x - 64;
+        let clsX = x + 64;
+        let headY = blockBot + 30;
+        let mlm = cell('bertMlm', ['Linear', '(E\u1D40, tied)'], mlmX, headY, 28, colors.linear, headW);
+        let mlmSm = cell('bertMlmSm', 'Softmax', mlmX, mlm.y + mlm.h + 18, 20, colors.softmax, headW);
+        let cls = cell('bertCls', ['Linear', 'on [CLS]'], clsX, headY, 28, colors.linear, headW);
+        let clsSm = cell('bertClsSm', 'Softmax', clsX, cls.y + cls.h + 18, 20, colors.softmax, headW);
+        let bertHeight = mlmSm.y + mlmSm.h + 34;
 
-        vert(emb, sum, x);
-        line([new Vec3(x, sum.y + sum.h), new Vec3(x, blockTop + 6)]);
-        // pre-norm, drawn the way the ViT's is: the residual leaves before the norm and rejoins after the sublayer
-        let resX = x + cellW / 2 + 4;
-        line([new Vec3(x, blockTop + 10), new Vec3(resX, blockTop + 10), new Vec3(resX, plus1Y), new Vec3(x + 7, plus1Y)]);
-        qkvInto(mha, ln1.y + ln1.h, x);
-        line([new Vec3(x, mha.y + mha.h), new Vec3(x, plus1Y - 7)]);
-        line([new Vec3(x, plus1Y + 6), new Vec3(x, ln2.y - 1)]);
-        line([new Vec3(x, plus1Y + 10), new Vec3(resX, plus1Y + 10), new Vec3(resX, plus2Y), new Vec3(x + 7, plus2Y)]);
-        vert(ln2, ffn, x);
-        line([new Vec3(x, ffn.y + ffn.h), new Vec3(x, plus2Y - 7)]);
-        line([new Vec3(x, plus2Y + 6), new Vec3(x, mlm.y - 1)]);
-        vert(mlm, cls, x);
+        line([new Vec3(x, 34), new Vec3(x, emb.y - 1)]);
+        vert(emb, embLn, x);
+        line([new Vec3(x, embLn.y + embLn.h), new Vec3(x, top + 4)], false);
+        let prevY = top + 4;
+        qkvInto(mha, prevY, x);
+        vert(mha, ln1, x);
+        residual(prevY + 4, ln1, -1);
+        prevY = ln1.y + ln1.h;
+        vert(prevY, ffn, x);
+        vert(ffn, ln2, x);
+        residual(prevY + 4, ln2, -1);
+        let forkY = blockBot + 14;
+        line([new Vec3(x, ln2.y + ln2.h), new Vec3(x, forkY)], false);
+        line([new Vec3(x, forkY), new Vec3(mlmX, forkY), new Vec3(mlmX, mlm.y - 1)]);
+        line([new Vec3(x, forkY), new Vec3(clsX, forkY), new Vec3(clsX, cls.y - 1)]);
+        vert(mlm, mlmSm, mlmX);
+        vert(cls, clsSm, clsX);
+        line([new Vec3(mlmX, mlmSm.y + mlmSm.h), new Vec3(mlmX, bertHeight - 26)]);
+        line([new Vec3(clsX, clsSm.y + clsSm.h), new Vec3(clsX, bertHeight - 26)]);
+
+        // the live sentence, and what the two heads make of it
+        let input = 'this film was great';
+        let maskGuess = '';
+        let sentiment = '';
+        if (model) {
+            let pieces = Array.from(model.inputBuf, id => model!.vocab[id]).filter(p => p !== '[PAD]');
+            input = pieces.join(' ');
+            if (input.length > 36) {
+                input = input.slice(0, 35) + '\u2026';
+            }
+            let pos = model.masked[0];
+            maskGuess = pos !== undefined ? (bertTopK(model, pos, 1)[0]?.tok ?? '') : '';
+            let probs = model.sentimentProbs.localBuffer;
+            if (probs) {
+                sentiment = (model.config.classes ?? ['negative', 'positive'])[probs[1] >= probs[0] ? 1 : 0];
+            }
+        }
 
         return {
             height: bertHeight,
             content: <>
                 {renderBlock('bertBlock', -1, 'L\u00d7')}
+                <text fontSize={10} textAnchor='middle' x={x} y={12} fill='#666'>Input (WordPiece tokens)</text>
+                <text fontSize={12} textAnchor='middle' x={x} y={30} fill='#333'>{input}</text>
+                <text fontSize={10} textAnchor='middle' x={mlmX} y={bertHeight - 16} fill='#666'>[MASK] prediction</text>
+                <text fontSize={13} textAnchor='middle' x={mlmX} y={bertHeight - 2} fill='#333'>{maskGuess || '\u2013'}</text>
+                <text fontSize={10} textAnchor='middle' x={clsX} y={bertHeight - 16} fill='#666'>Sentiment</text>
+                <text fontSize={13} textAnchor='middle' x={clsX} y={bertHeight - 2} fill='#333'>{sentiment || '\u2013'}</text>
             </>,
         };
     }
@@ -545,12 +584,16 @@ export const TocDiagram: React.FC<{
     cells = [];
     paths = [];
     let vitDiagram = buildVitDiagram();
+    let vitCells = cells, vitPaths = paths;
     cells = [];
     paths = [];
     let bertDiagram = buildBertDiagram();
     if (bertMode) {
         height = bertDiagram.height;
     } else if (vitMode) {
+        // the BERT diagram was built last, so the ViT's own cells and paths have to be put back
+        cells = vitCells;
+        paths = vitPaths;
         height = vitDiagram.height;
     } else {
         cells = transformerCells;

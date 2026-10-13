@@ -578,6 +578,9 @@ export function bufferRms(buf: IBufferTex | null | undefined, channel: number = 
         let sum = 0;
         let n = 0;
         for (let i = channel; i < arr.length; i += buf.channels) {
+            // skip the -1e9 that padding-masked attention scores hold (BERT): one of them would
+            // dominate the rms and wash every real score out to grey
+            if (arr[i] <= -1e8) continue;
             sum += arr[i] * arr[i];
             n++;
         }
