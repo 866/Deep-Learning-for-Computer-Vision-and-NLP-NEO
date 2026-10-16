@@ -88,7 +88,7 @@ curl http://localhost:11434/api/tags      # має повернути JSON зі 
 
 ```bash
 ollama pull llama3.1:8b          # ~4.9 ГБ — модель за замовчуванням, добре «вирівняна», зазвичай відмовляється
-ollama pull llama3.2:1b          # ~1.3 ГБ — надто слабка, щоб її можна було «перехопити»
+ollama pull llama3.2:1b          # ~1.3 ГБ — надто слабка (low IQ is the best safety guard:D), щоб її можна було «перехопити»
 ollama pull qwen2.5-coder:14b    # ~9 ГБ   — зазвичай виконує шкідливу інструкцію (атака вдається)
 ```
 
