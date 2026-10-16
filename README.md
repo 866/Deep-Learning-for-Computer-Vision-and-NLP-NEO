@@ -130,7 +130,58 @@ uv run python main.py
 
 ---
 
-## 4. Коротка шпаргалка
+## 4. Запуск `attention-vis`
+
+`attention-vis` — це інтерактивна 3D-візуалізація Transformer, Vision Transformer (ViT) та BERT (окремий веб-застосунок на Vite + React + TypeScript). Вона працює незалежно від Python-середовища: усі ваги моделей зберігаються у готових JSON-файлах, а forward-pass виконується прямо в браузері.
+
+### Що потрібно встановити
+
+1. **Node.js 18 або новіша версія** (включаючи `npm`). Перевірити версію:
+
+   ```bash
+   node --version   # має бути v18.0.0 або вище
+   ```
+
+   Встановити, наприклад, через [nvm](https://github.com/nvm-sh/nvm) (Linux/macOS):
+
+   ```bash
+   nvm install 20
+   nvm use 20
+   ```
+
+   або через менеджер пакетів вашого дистрибутива.
+
+2. **Залежності проєкту** (React, Vite, TypeScript тощо). У папці `attention-vis/` виконайте:
+
+   ```bash
+   cd attention-vis
+   npm install
+   ```
+
+> Python/PyTorch потрібні лише якщо ви хочете **передтренувати** моделі (`training/*.py`) — для перегляду візуалізації вони не потрібні.
+
+### Запуск development-сервера
+
+```bash
+cd attention-vis
+npm run dev
+```
+
+Vite підійме локальний development-сервер і виведе адресу у терміналі — зазвичай це **http://localhost:5173**. Відкрийте цю адресу в браузері.
+
+Додаткові корисні команди:
+
+```bash
+npm run build      # збірка статичного сайту у папку dist/
+npm run preview    # локальний перегляд збірки після build
+npm run typecheck  # перевірка типів TypeScript
+npm run validate   # перевірка JS forward-pass проти активцій PyTorch
+npm run check:bert # перевірка BERT-asetів, ваг, токенайзера та розділів
+```
+
+---
+
+## 5. Коротка шпаргалка
 
 | Дія | Команда | Примітка |
 | --- | --- | --- |
@@ -141,10 +192,13 @@ uv run python main.py
 | Додати пакет | `uv add <package>` | Додає до `pyproject.toml` |
 | Запустити Jupyter Lab | `uv run --with jupyterlab jupyter lab` | Веб-інтерфейс |
 | Запустити VS Code | `code .` | Найзручніший для проєкту |
+| Встановити залежності `attention-vis` | `cd attention-vis && npm install` | Потрібен Node 18+ |
+| Запустити `attention-vis` (dev) | `npm run dev` | Відкрийте http://localhost:5173 |
+| Зібрати `attention-vis` | `npm run build` | Статичний сайт у `dist/` |
 
 ---
 
-## 5. Рекомендація
+## 6. Рекомендація
 
 Для цього проєкту найзручніше використовувати:
 

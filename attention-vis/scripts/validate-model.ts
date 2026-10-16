@@ -74,7 +74,11 @@ model.dec.blocks.forEach((b, i) => {
     check(`dec.${i}.selfAttn.attn`, b.selfAttn.attnMatrix.localBuffer);
     check(`dec.${i}.selfAttn.attnSm`, b.selfAttn.attnMatrixSoftmax.localBuffer);
     check(`dec.${i}.ln1`, b.ln1.output.localBuffer);
+    // cross-attention: Q from the decoder, K and V from the encoder output (the memory)
+    check(`dec.${i}.crossAttn.q`, b.crossAttn.q.localBuffer, headsToCols);
     check(`dec.${i}.crossAttn.k`, b.crossAttn.k.localBuffer, headsToCols);
+    check(`dec.${i}.crossAttn.v`, b.crossAttn.v.localBuffer, headsToCols);
+    check(`dec.${i}.crossAttn.vOut`, b.crossAttn.scaledVectors.localBuffer);
     check(`dec.${i}.crossAttn.attnSm`, b.crossAttn.attnMatrixSoftmax.localBuffer);
     check(`dec.${i}.ln2`, b.ln2.output.localBuffer);
     check(`dec.${i}.ln3`, b.ln3.output.localBuffer);
