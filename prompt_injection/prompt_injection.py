@@ -3,7 +3,7 @@
 
 Requires a running Ollama server and a locally available chat model.
 No email is sent and no external tools are called: the script only prints
-what the model proposes, then applies a tiny policy gate to that proposal.
+what the model proposes.
 
 Run (local Ollama):
   OLLAMA_MODEL=qwen2.5-coder:14b uv run python prompt_injection.py   # shows the attack succeeding
